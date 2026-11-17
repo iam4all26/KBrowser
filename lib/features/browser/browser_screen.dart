@@ -10,6 +10,7 @@ import '../../services/history_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
+import 'private_browser_screen.dart';
 import 'start_page.dart';
 import 'tab_switcher_screen.dart';
 import 'url_utils.dart';
@@ -287,6 +288,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
     return _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
   }
 
+  void _openPrivate() {
+    _focus.unfocus();
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => PrivateBrowserScreen(engine: _engine)),
+    );
+  }
+
   Future<void> _toggleBookmark(String url, String title, bool marked) async {
     if (marked) {
       await _bookmarks.removeUrl(url);
@@ -453,6 +461,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 ),
                 const Divider(height: 1),
                 item(Icons.add, 'New Tab', _newTab),
+                item(Icons.visibility_off_outlined, 'New private tab', _openPrivate),
                 if (_tabs.recentlyClosed.isNotEmpty)
                   item(Icons.undo, 'Reopen closed tab', () => _tabs.reopenClosed()),
                 if (t != null) item(Icons.copy_all_outlined, 'Duplicate tab', () => _tabs.duplicate(t.id)),

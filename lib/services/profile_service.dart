@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:kmulti_profiles/kmulti_profiles.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../features/browser/private_session.dart';
+
 import '../models/app_profile.dart';
 
 class CreateResult {
@@ -40,6 +42,7 @@ class ProfileService extends ChangeNotifier {
     supported = info['supported'] == true;
     engineInfo = (info['webViewVersion'] ?? 'unknown').toString();
     if (supported) {
+      await PrivateSession.cleanupLeftovers();
       await _reconcile();
     }
     await _load();
