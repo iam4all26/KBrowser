@@ -1,10 +1,20 @@
 package com.kainuwa.kmultibrowser.profiles
 
+import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.Uri
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.Message
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.URLUtil
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -20,7 +30,7 @@ import io.flutter.plugin.platform.PlatformView
 /**
  * One WebView permanently bound to one engine profile.
  * If the profile cannot be applied, an error view is shown. There is no fallback
- * to the default (shared) profile.
+ * to the default (shared) profile. Pop-up windows and downloads also use this profile.
  */
 class KWebView(
     context: Context,
@@ -29,8 +39,10 @@ class KWebView(
     private val profileName: String
 ) : PlatformView, MethodChannel.MethodCallHandler {
 
+    private val appContext: Context = context.applicationContext
     private val channel = MethodChannel(messenger, "kmulti/webview_$viewId")
     private var webView: WebView? = null
+    private var mobileUa: String = ""
     private val root: View = build(context)
 
     init {
@@ -47,6 +59,9 @@ class KWebView(
         }
     }
 
+    private fun profileCookies() =
+        ProfileStore.getInstance().getProfile(profileName)?.cookieManager
+
     private fun build(context: Context): View {
         if (profileName.isEmpty()) return errorView(context, "No profile given.")
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
@@ -57,22 +72,91 @@ class KWebView(
             val wv = WebView(context)
             // Must happen before any content is loaded.
             WebViewCompat.setProfile(wv, profileName)
-            wv.settings.javaScriptEnabled = true
-            wv.settings.domStorageEnabled = true
+            wv.settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                useWideViewPort = true
+                loadWithOverviewMode = true
+                setSupportZoom(true)
+                builtInZoomControls = true
+                displayZoomControls = false
+                setSupportMultipleWindows(true)
+                javaScriptCanOpenWindowsAutomatically = true
+            }
+            mobileUa = wv.settings.userAgentString
             wv.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
                     view: WebView,
                     request: WebResourceRequest
-                ): Boolean = false
+                ): Boolean {
+                    val uri = request.url
+                    return when (uri.scheme) {
+                        null, "http", "https", "about", "data", "blob", "javascript" -> false
+                        else -> openExternal(uri)
+                    }
+                }
 
-                override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                     notifyPage(view, url)
                 }
 
                 override fun onPageFinished(view: WebView, url: String?) {
-                    ProfileStore.getInstance().getProfile(profileName)?.cookieManager?.flush()
+                    profileCookies()?.flush()
                     notifyPage(view, url)
                 }
+            }
+            wv.webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView, newProgress: Int) {
+                    channel.invokeMethod("onProgress", newProgress)
+                }
+
+                override fun onReceivedTitle(view: WebView, title: String?) {
+                    notifyPage(view, view.url)
+                }
+
+                override fun onCreateWindow(
+                    view: WebView,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message
+                ): Boolean {
+                    // Catch the pop-up URL in a short-lived WebView of the SAME profile
+                    // and let Flutter open it as a new tab.
+                    val temp = WebView(view.context)
+                    try {
+                        WebViewCompat.setProfile(temp, profileName)
+                    } catch (e: Throwable) {
+                        temp.destroy()
+                        return false
+                    }
+                    var fired = false
+                    fun fire(url: String?) {
+                        if (fired || url.isNullOrEmpty() || url == "about:blank") return
+                        fired = true
+                        channel.invokeMethod("onNewWindow", url)
+                        Handler(Looper.getMainLooper()).post {
+                            temp.stopLoading()
+                            temp.destroy()
+                        }
+                    }
+                    temp.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                            fire(request.url.toString())
+                            return true
+                        }
+
+                        override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
+                            fire(url)
+                        }
+                    }
+                    val transport = resultMsg.obj as WebView.WebViewTransport
+                    transport.webView = temp
+                    resultMsg.sendToTarget()
+                    return true
+                }
+            }
+            wv.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+                startDownload(url, userAgent, contentDisposition, mimeType)
             }
             webView = wv
             wv
@@ -80,6 +164,52 @@ class KWebView(
             errorView(context, "Could not open profile $profileName: ${e.message}")
         }
     }
+
+    private fun openExternal(uri: Uri): Boolean {
+        try {
+            val intent = if (uri.scheme == "intent") {
+                Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+            } else {
+                Intent(Intent.ACTION_VIEW, uri)
+            }
+            intent.addCategory(Intent.CATEGORY_BROWSABLE)
+            intent.component = null
+            intent.selector = null
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(intent)
+        } catch (e: Exception) {
+            // No app can handle it: block the navigation.
+        }
+        return true
+    }
+
+    private fun startDownload(url: String, userAgent: String?, contentDisposition: String?, mimeType: String?) {
+        if (url.startsWith("blob:") || url.startsWith("data:")) {
+            channel.invokeMethod("onDownload", mapOf("message" to "This kind of download is not supported yet"))
+            return
+        }
+        try {
+            val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
+            val request = DownloadManager.Request(Uri.parse(url))
+            if (!mimeType.isNullOrEmpty()) request.setMimeType(mimeType)
+            // Use THIS profile's cookies so logged-in downloads work and stay profile-bound.
+            val cookie = profileCookies()?.getCookie(url)
+            if (!cookie.isNullOrEmpty()) request.addRequestHeader("Cookie", cookie)
+            if (!userAgent.isNullOrEmpty()) request.addRequestHeader("User-Agent", userAgent)
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            val dm = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            dm.enqueue(request)
+            channel.invokeMethod("onDownload", mapOf("message" to "Downloading $name"))
+        } catch (e: Throwable) {
+            channel.invokeMethod("onDownload", mapOf("message" to "Download failed: ${e.message}"))
+        }
+    }
+
+    private fun desktopUa(ua: String): String =
+        ua.replace(Regex("\\(Linux; Android[^)]*\\)"), "(X11; Linux x86_64)")
+            .replace(" Mobile", "")
+            .replace("Version/4.0 ", "")
 
     private fun notifyPage(view: WebView, url: String?) {
         channel.invokeMethod(
@@ -110,8 +240,16 @@ class KWebView(
                 result.success(null)
             }
             "reload" -> { wv.reload(); result.success(null) }
+            "stop" -> { wv.stopLoading(); result.success(null) }
             "goBack" -> { if (wv.canGoBack()) wv.goBack(); result.success(null) }
             "goForward" -> { if (wv.canGoForward()) wv.goForward(); result.success(null) }
+            "setDesktopMode" -> {
+                val enabled = call.argument<Boolean>("enabled") ?: false
+                val reload = call.argument<Boolean>("reload") ?: true
+                wv.settings.userAgentString = if (enabled) desktopUa(mobileUa) else mobileUa
+                if (reload && wv.url != null) wv.reload()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -120,6 +258,10 @@ class KWebView(
 
     override fun dispose() {
         channel.setMethodCallHandler(null)
+        try {
+            profileCookies()?.flush()
+        } catch (e: Throwable) {
+        }
         webView?.let {
             (it.parent as? ViewGroup)?.removeView(it)
             it.destroy()

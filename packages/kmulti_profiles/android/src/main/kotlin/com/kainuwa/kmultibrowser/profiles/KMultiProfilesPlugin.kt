@@ -1,6 +1,8 @@
 package com.kainuwa.kmultibrowser.profiles
 
+import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -55,6 +57,23 @@ class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     val name = call.argument<String>("name") ?: error("name missing")
                     // Throws IllegalStateException if a WebView still uses the profile.
                     result.success(ProfileStore.getInstance().deleteProfile(name))
+                }
+                "share" -> {
+                    val text = call.argument<String>("text") ?: error("text missing")
+                    val ctx = appContext ?: error("no context")
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    result.success(null)
+                }
+                "openDownloads" -> {
+                    val ctx = appContext ?: error("no context")
+                    ctx.startActivity(
+                        Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    result.success(null)
                 }
                 "cookies" -> {
                     requireSupported()

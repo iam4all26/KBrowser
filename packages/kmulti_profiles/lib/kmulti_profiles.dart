@@ -33,6 +33,13 @@ class KMultiProfiles {
 
   static Future<String?> cookies(String profile, String url) =>
       _channel.invokeMethod<String>('cookies', {'name': profile, 'url': url});
+
+  /// Opens the Android share sheet with [text].
+  static Future<void> share(String text) =>
+      _channel.invokeMethod<void>('share', {'text': text});
+
+  /// Opens the system Downloads app.
+  static Future<void> openDownloads() => _channel.invokeMethod<void>('openDownloads');
 }
 
 @immutable
@@ -53,14 +60,22 @@ class KWebViewController {
   KWebViewController(int viewId)
       : _channel = MethodChannel('kmulti/webview_$viewId') {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onPage') {
-        final a = Map<String, dynamic>.from(call.arguments as Map);
-        state.value = KPageState(
-          url: (a['url'] as String?) ?? '',
-          title: (a['title'] as String?) ?? '',
-          canGoBack: a['canGoBack'] == true,
-          canGoForward: a['canGoForward'] == true,
-        );
+      switch (call.method) {
+        case 'onPage':
+          final a = Map<String, dynamic>.from(call.arguments as Map);
+          state.value = KPageState(
+            url: (a['url'] as String?) ?? '',
+            title: (a['title'] as String?) ?? '',
+            canGoBack: a['canGoBack'] == true,
+            canGoForward: a['canGoForward'] == true,
+          );
+        case 'onProgress':
+          progress.value = ((call.arguments as num) / 100).clamp(0.0, 1.0).toDouble();
+        case 'onNewWindow':
+          onNewWindow?.call(call.arguments as String);
+        case 'onDownload':
+          final a = Map<String, dynamic>.from(call.arguments as Map);
+          onDownloadMessage?.call((a['message'] as String?) ?? '');
       }
       return null;
     });
@@ -69,12 +84,24 @@ class KWebViewController {
   final MethodChannel _channel;
   final ValueNotifier<KPageState> state = ValueNotifier(const KPageState());
 
+  /// Page load progress, 0.0 to 1.0 (1.0 means idle or finished).
+  final ValueNotifier<double> progress = ValueNotifier(1.0);
+
+  /// Called when a page asks to open a new window (target=_blank, window.open).
+  void Function(String url)? onNewWindow;
+
+  /// Called with a short message when a download starts or cannot start.
+  void Function(String message)? onDownloadMessage;
+
   Future<void> loadUrl(String url) =>
       _channel.invokeMethod<void>('loadUrl', {'url': url});
   Future<void> loadTestPage() => _channel.invokeMethod<void>('loadTestPage');
   Future<void> reload() => _channel.invokeMethod<void>('reload');
+  Future<void> stop() => _channel.invokeMethod<void>('stop');
   Future<void> goBack() => _channel.invokeMethod<void>('goBack');
   Future<void> goForward() => _channel.invokeMethod<void>('goForward');
+  Future<void> setDesktopMode(bool enabled, {bool reload = true}) =>
+      _channel.invokeMethod<void>('setDesktopMode', {'enabled': enabled, 'reload': reload});
 }
 
 /// A native WebView bound to one engine profile for its whole life.

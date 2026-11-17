@@ -29,6 +29,8 @@ class ProfileService extends ChangeNotifier {
     '#0091FF', '#F76B15', '#E93D82', '#12A594',
   ];
 
+  Database get db => _db;
+
   List<AppProfile> profiles = const [];
   bool supported = false;
   String engineInfo = '';
@@ -157,6 +159,24 @@ class ProfileService extends ChangeNotifier {
     await _load();
   }
 
+  Future<String?> getSetting(String profileId, String key) async {
+    final r = await _db.query(
+      'profile_settings',
+      where: 'profile_id = ? AND key = ?',
+      whereArgs: [profileId, key],
+      limit: 1,
+    );
+    return r.isEmpty ? null : r.first['value'] as String?;
+  }
+
+  Future<void> setSetting(String profileId, String key, String value) async {
+    await _db.insert(
+      'profile_settings',
+      {'profile_id': profileId, 'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<void> touchActive(String id) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     await _db.update(
@@ -176,6 +196,8 @@ class ProfileService extends ChangeNotifier {
     for (final id in ids) {
       try {
         await KMultiProfiles.deleteProfile(id);
+        await _db.delete('tabs', where: 'profile_id = ?', whereArgs: [id]);
+        await _db.delete('profile_settings', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('profiles', where: 'id = ?', whereArgs: [id]);
         deleted++;
       } catch (e) {

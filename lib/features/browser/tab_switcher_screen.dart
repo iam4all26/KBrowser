@@ -1,0 +1,118 @@
+import 'package:flutter/material.dart';
+
+import '../../core/theme/app_theme.dart';
+import '../../models/browser_tab.dart';
+import '../../services/tab_service.dart';
+
+class TabSwitcherScreen extends StatelessWidget {
+  const TabSwitcherScreen({super.key, required this.tabs});
+  final TabService tabs;
+
+  String _title(BrowserTab t) {
+    if (t.title.isNotEmpty) return t.title;
+    final host = Uri.tryParse(t.url)?.host ?? '';
+    return host.isNotEmpty ? host : 'New tab';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: tabs,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('Tabs (${tabs.tabs.length})'),
+            actions: [
+              IconButton(
+                tooltip: 'New tab',
+                icon: const Icon(Icons.add),
+                onPressed: () async {
+                  await tabs.addTab(url: tabs.homeUrl, desktop: tabs.desktopDefault);
+                  if (context.mounted) Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+          body: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            itemCount: tabs.tabs.length,
+            itemBuilder: (_, i) {
+              final t = tabs.tabs[i];
+              final isActive = t.id == tabs.activeId;
+              final title = _title(t);
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
+                child: Material(
+                  color: AppColors.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: isActive ? AppColors.purple : Colors.transparent,
+                      width: 2,
+                    ),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      await tabs.select(t.id);
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: Colors.white12,
+                            child: Text(title.characters.first.toUpperCase()),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                Text(
+                                  t.url.isEmpty ? 'Blank page' : t.url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, color: Colors.white60),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close tab',
+                            icon: const Icon(Icons.close),
+                            onPressed: () => tabs.close(t.id),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          bottomNavigationBar: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: FilledButton.tonalIcon(
+                icon: const Icon(Icons.delete_sweep_outlined),
+                label: const Text('Close All Tabs'),
+                onPressed: () async {
+                  await tabs.closeAll();
+                  if (context.mounted) Navigator.pop(context);
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

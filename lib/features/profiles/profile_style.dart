@@ -30,6 +30,19 @@ class ProfileStyle {
     return Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
   }
 
+  static String lastActiveShort(int? ms) {
+    if (ms == null) return 'Not opened yet';
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return '$h ${h == 1 ? 'hour' : 'hours'} ago';
+    }
+    if (diff.inDays == 1) return 'Yesterday';
+    return '${diff.inDays} days ago';
+  }
+
   static String lastActiveText(int? ms) {
     if (ms == null) return 'Not opened yet';
     final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));

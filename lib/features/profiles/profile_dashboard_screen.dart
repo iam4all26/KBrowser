@@ -233,8 +233,14 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
                                 : 'No profile matches your search.',
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                      : GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 130,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            childAspectRatio: 0.9,
+                          ),
                           itemCount: items.length,
                           itemBuilder: (_, i) => _card(items[i]),
                         ),
@@ -250,76 +256,79 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
   Widget _card(AppProfile p) {
     final color = ProfileStyle.colorFor(p.color);
     final selected = _selected.contains(p.id);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Material(
-        color: selected ? AppColors.purple.withValues(alpha: 0.25) : AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _selecting ? _toggle(p.id) : _open(p),
-          onLongPress: () => _toggle(p.id),
-          child: IntrinsicHeight(
-            child: Row(
-              children: [
-                Container(width: 4, color: color),
-                const SizedBox(width: 12),
-                if (_selecting)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: Icon(selected ? Icons.check_circle : Icons.circle_outlined),
+    return Material(
+      color: selected ? AppColors.purple.withValues(alpha: 0.25) : AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _selecting ? _toggle(p.id) : _open(p),
+        onLongPress: () => _toggle(p.id),
+        child: Stack(
+          children: [
+            Positioned(top: 0, left: 0, right: 0, child: Container(height: 4, color: color)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 16, 8, 10),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: color,
+                    child: Icon(ProfileStyle.iconFor(p.icon), color: Colors.white, size: 26),
                   ),
-                CircleAvatar(
-                  backgroundColor: color,
-                  child: Icon(ProfileStyle.iconFor(p.icon), color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          p.displayName,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          ProfileStyle.lastActiveText(p.lastActiveAt),
-                          style: const TextStyle(fontSize: 12, color: Colors.white60),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 10),
+                  Text(
+                    p.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
-                ),
-                if (!_selecting)
-                  PopupMenuButton<String>(
-                    onSelected: (v) {
-                      switch (v) {
-                        case 'open':
-                          _open(p);
-                        case 'rename':
-                          _rename(p);
-                        case 'look':
-                          _appearance(p);
-                        case 'delete':
-                          _delete([p]);
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'open', child: Text('Open')),
-                      PopupMenuItem(value: 'rename', child: Text('Rename')),
-                      PopupMenuItem(value: 'look', child: Text('Colour and icon')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete')),
-                    ],
-                  )
-                else
-                  const SizedBox(width: 12),
-              ],
+                  const SizedBox(height: 2),
+                  Text(
+                    ProfileStyle.lastActiveShort(p.lastActiveAt),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                  ),
+                ],
+              ),
             ),
-          ),
+            if (_selecting)
+              Positioned(
+                top: 10,
+                left: 8,
+                child: Icon(selected ? Icons.check_circle : Icons.circle_outlined, size: 20),
+              )
+            else
+              Positioned(
+                top: 4,
+                right: 0,
+                child: PopupMenuButton<String>(
+                  padding: EdgeInsets.zero,
+                  iconSize: 20,
+                  onSelected: (v) {
+                    switch (v) {
+                      case 'open':
+                        _open(p);
+                      case 'rename':
+                        _rename(p);
+                      case 'look':
+                        _appearance(p);
+                      case 'delete':
+                        _delete([p]);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'open', child: Text('Open')),
+                    PopupMenuItem(value: 'rename', child: Text('Rename')),
+                    PopupMenuItem(value: 'look', child: Text('Colour and icon')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );
