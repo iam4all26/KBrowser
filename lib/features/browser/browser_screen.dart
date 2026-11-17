@@ -429,11 +429,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final url = t?.url ?? '';
     final marked = url.startsWith('http') && await _bookmarks.contains(url);
     if (!mounted) return;
-    final c = _activeCtl;
-    final canBack = c?.state.value.canGoBack ?? false;
-    final canForward = c?.state.value.canGoForward ?? false;
-    final loading = (c?.progress.value ?? 1.0) < 1.0;
-    final onStart = _onStart;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -469,56 +464,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     Navigator.pop(ctx);
                     _showProfileSwitcher();
                   },
-                ),
-                const Divider(height: 1),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    IconButton(
-                      tooltip: 'Back',
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: canBack
-                          ? () {
-                              Navigator.pop(ctx);
-                              c?.goBack();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: 'Forward',
-                      icon: const Icon(Icons.arrow_forward),
-                      onPressed: canForward
-                          ? () {
-                              Navigator.pop(ctx);
-                              c?.goForward();
-                            }
-                          : null,
-                    ),
-                    IconButton(
-                      tooltip: loading ? 'Stop' : 'Reload',
-                      icon: Icon(loading ? Icons.close : Icons.refresh),
-                      onPressed: onStart
-                          ? null
-                          : () {
-                              Navigator.pop(ctx);
-                              if (loading) {
-                                c?.stop();
-                              } else {
-                                c?.reload();
-                              }
-                            },
-                    ),
-                    IconButton(
-                      tooltip: marked ? 'Remove bookmark' : 'Add bookmark',
-                      icon: Icon(marked ? Icons.star : Icons.star_border),
-                      onPressed: url.startsWith('http')
-                          ? () {
-                              Navigator.pop(ctx);
-                              _toggleBookmark(url, t?.title ?? '', marked);
-                            }
-                          : null,
-                    ),
-                  ],
                 ),
                 const Divider(height: 1),
                 item(Icons.add, 'New Tab', _newTab),
@@ -610,29 +555,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     );
   }
 
-  Widget _tabCountButton() {
-    return InkResponse(
-      onTap: _openSwitcher,
-      radius: 22,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Container(
-          width: 26,
-          height: 26,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            border: Border.all(color: Theme.of(context).colorScheme.onSurface, width: 1.6),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            '${_tabs.tabs.length}',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
@@ -654,6 +576,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final progress = c?.progress.value ?? 1.0;
     final loading = progress < 1.0;
     final canBack = c?.state.value.canGoBack ?? false;
+    final canForward = c?.state.value.canGoForward ?? false;
     final secure = (active?.url ?? '').startsWith('https://');
 
     return PopScope(
@@ -672,17 +595,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
       },
       child: Scaffold(
         body: SafeArea(
+          bottom: false,
           child: Column(
           children: [
             if (_finding) _findBar(c) else Padding(
-              padding: const EdgeInsets.fromLTRB(2, 6, 2, 4),
-              child: Row(children: [
-              IconButton(
-                tooltip: 'Home',
-                icon: const Icon(Icons.home_outlined),
-                onPressed: _goHome,
-              ),
-              Expanded(child: TextField(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+              child: TextField(
                 controller: _url,
                 focusNode: _focus,
                 keyboardType: TextInputType.url,
@@ -713,14 +631,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                           onPressed: () => loading ? c?.stop() : c?.reload(),
                         ),
                 ),
-              )),
-              _tabCountButton(),
-              IconButton(
-                tooltip: 'Menu',
-                icon: const Icon(Icons.more_vert),
-                onPressed: _openMenu,
               ),
-              ]),
             ),
             SizedBox(
               height: 2,
@@ -746,6 +657,51 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         onOpenHistory: _openHistory,
                       ),
                     ),
+                ],
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: canBack ? () => c?.goBack() : null,
+                  ),
+                  IconButton(
+                    tooltip: 'Forward',
+                    icon: const Icon(Icons.arrow_forward),
+                    onPressed: canForward ? () => c?.goForward() : null,
+                  ),
+                  IconButton(
+                    tooltip: 'Home',
+                    icon: const Icon(Icons.home_outlined),
+                    onPressed: _goHome,
+                  ),
+                  InkResponse(
+                    onTap: _openSwitcher,
+                    radius: 24,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Theme.of(context).colorScheme.onSurface, width: 1.6),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${_tabs.tabs.length}',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Menu',
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: _openMenu,
+                  ),
                 ],
               ),
             ),

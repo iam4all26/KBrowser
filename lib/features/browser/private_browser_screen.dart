@@ -264,105 +264,6 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
     );
   }
 
-  Widget _tabCountButton() {
-    return InkResponse(
-      onTap: _showTabs,
-      radius: 22,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Container(
-          width: 26,
-          height: 26,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.gold, width: 1.6),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            '${_tabs.length}',
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openMenu() {
-    _focus.unfocus();
-    final c = _activeCtl;
-    final canBack = c?.state.value.canGoBack ?? false;
-    final canForward = c?.state.value.canGoForward ?? false;
-    final loading = (c?.progress.value ?? 1.0) < 1.0 && !_onHome;
-    final onHome = _onHome;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                IconButton(
-                  tooltip: 'Back',
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: canBack && !onHome
-                      ? () {
-                          Navigator.pop(ctx);
-                          c?.goBack();
-                        }
-                      : null,
-                ),
-                IconButton(
-                  tooltip: 'Forward',
-                  icon: const Icon(Icons.arrow_forward),
-                  onPressed: canForward
-                      ? () {
-                          Navigator.pop(ctx);
-                          c?.goForward();
-                        }
-                      : null,
-                ),
-                IconButton(
-                  tooltip: loading ? 'Stop' : 'Reload',
-                  icon: Icon(loading ? Icons.close : Icons.refresh),
-                  onPressed: onHome
-                      ? null
-                      : () {
-                          Navigator.pop(ctx);
-                          if (loading) {
-                            c?.stop();
-                          } else {
-                            c?.reload();
-                          }
-                        },
-                ),
-              ],
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('New private tab'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _addTab('');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Exit private browsing'),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _tabView(_PTab t) {
     return KeyedSubtree(
       key: ValueKey(t.id),
@@ -438,6 +339,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
     final progress = c?.progress.value ?? 1.0;
     final loading = progress < 1.0 && !_onHome;
     final canBack = c?.state.value.canGoBack ?? false;
+    final canForward = c?.state.value.canGoForward ?? false;
     final secure = (_active?.url ?? '').startsWith('https://');
     final index = _tabs.indexWhere((t) => t.id == _activeId);
 
@@ -455,6 +357,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
       },
       child: Scaffold(
         body: SafeArea(
+          bottom: false,
           child: Column(
             children: [
               Container(
@@ -475,14 +378,8 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(2, 6, 2, 4),
-                child: Row(children: [
-                IconButton(
-                  tooltip: 'Start page',
-                  icon: const Icon(Icons.home_outlined),
-                  onPressed: _goHome,
-                ),
-                Expanded(child: TextField(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+                child: TextField(
                   controller: _url,
                   focusNode: _focus,
                   keyboardType: TextInputType.url,
@@ -513,14 +410,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
                             onPressed: () => loading ? c?.stop() : c?.reload(),
                           ),
                   ),
-                )),
-                _tabCountButton(),
-                IconButton(
-                  tooltip: 'Menu',
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _openMenu(),
                 ),
-                ]),
               ),
               SizedBox(
                 height: 2,
@@ -534,6 +424,51 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
                       children: [for (final t in _tabs) _tabView(t)],
                     ),
                     if (_onHome) Positioned.fill(child: _home()),
+                  ],
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    IconButton(
+                      tooltip: 'Back',
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: canBack && !_onHome ? () => c?.goBack() : null,
+                    ),
+                    IconButton(
+                      tooltip: 'Forward',
+                      icon: const Icon(Icons.arrow_forward),
+                      onPressed: canForward ? () => c?.goForward() : null,
+                    ),
+                    IconButton(
+                      tooltip: 'Start page',
+                      icon: const Icon(Icons.home_outlined),
+                      onPressed: _goHome,
+                    ),
+                    InkResponse(
+                      onTap: _showTabs,
+                      radius: 24,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.gold, width: 1.6),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${_tabs.length}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'New private tab',
+                      icon: const Icon(Icons.add),
+                      onPressed: () => _addTab(''),
+                    ),
                   ],
                 ),
               ),
