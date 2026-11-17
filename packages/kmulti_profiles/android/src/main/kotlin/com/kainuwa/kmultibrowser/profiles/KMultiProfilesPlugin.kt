@@ -15,7 +15,6 @@ import io.flutter.plugin.common.MethodChannel
 
 class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private val fileChooser = FileChooserBridge()
-    private val permissions = PermissionBridge()
     private var activityBinding: ActivityPluginBinding? = null
     private var channel: MethodChannel? = null
     private var appContext: Context? = null
@@ -27,7 +26,7 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
         }
         binding.platformViewRegistry.registerViewFactory(
             "kmulti/webview",
-            KWebViewFactory(binding.binaryMessenger, fileChooser, permissions)
+            KWebViewFactory(binding.binaryMessenger, fileChooser)
         )
     }
 
@@ -39,12 +38,9 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding?.removeActivityResultListener(fileChooser)
-        activityBinding?.removeRequestPermissionsResultListener(permissions)
         activityBinding = binding
         fileChooser.activity = binding.activity
-        permissions.activity = binding.activity
         binding.addActivityResultListener(fileChooser)
-        binding.addRequestPermissionsResultListener(permissions)
     }
 
     override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
@@ -54,10 +50,8 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
 
     override fun onDetachedFromActivity() {
         activityBinding?.removeActivityResultListener(fileChooser)
-        activityBinding?.removeRequestPermissionsResultListener(permissions)
         activityBinding = null
         fileChooser.activity = null
-        permissions.activity = null
     }
 
     private fun supported(): Boolean =
