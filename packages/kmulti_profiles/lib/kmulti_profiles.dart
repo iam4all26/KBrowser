@@ -24,6 +24,13 @@ class KMultiProfiles {
     return r ?? <String>[];
   }
 
+  /// Deletes the engine profile and all its data. Throws if the profile is in
+  /// use by a live WebView. Returns true if a profile was deleted.
+  static Future<bool> deleteProfile(String name) async {
+    final r = await _channel.invokeMethod<bool>('deleteProfile', {'name': name});
+    return r ?? false;
+  }
+
   static Future<String?> cookies(String profile, String url) =>
       _channel.invokeMethod<String>('cookies', {'name': profile, 'url': url});
 }

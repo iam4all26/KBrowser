@@ -50,6 +50,12 @@ class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     requireSupported()
                     result.success(ProfileStore.getInstance().allProfileNames)
                 }
+                "deleteProfile" -> {
+                    requireSupported()
+                    val name = call.argument<String>("name") ?: error("name missing")
+                    // Throws IllegalStateException if a WebView still uses the profile.
+                    result.success(ProfileStore.getInstance().deleteProfile(name))
+                }
                 "cookies" -> {
                     requireSupported()
                     val name = call.argument<String>("name") ?: error("name missing")

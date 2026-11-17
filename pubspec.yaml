@@ -9,8 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  sqflite: ^2.4.1
   kmulti_profiles:
     path: packages/kmulti_profiles
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png

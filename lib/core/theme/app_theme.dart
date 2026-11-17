@@ -4,6 +4,7 @@ class AppColors {
   static const purple = Color(0xFF7351FF);
   static const gold = Color(0xFFF6C101);
   static const darkBase = Color(0xFF17151F);
+  static const surface = Color(0xFF22202B);
   static const white = Color(0xFFFFFFFF);
 }
 
