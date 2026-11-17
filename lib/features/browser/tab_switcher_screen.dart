@@ -5,6 +5,7 @@ import '../../models/app_profile.dart';
 import '../../models/browser_tab.dart';
 import '../../services/tab_service.dart';
 import '../profiles/profile_style.dart';
+import 'url_utils.dart';
 
 class TabSwitcherScreen extends StatelessWidget {
   const TabSwitcherScreen({super.key, required this.tabs, required this.profile});
@@ -15,6 +16,7 @@ class TabSwitcherScreen extends StatelessWidget {
   static const String switchProfile = 'switch_profile';
 
   String _title(BrowserTab t) {
+    if (t.url.isEmpty || t.url == kHomeUrl) return 'New tab';
     if (t.title.isNotEmpty) return t.title;
     final host = Uri.tryParse(t.url)?.host ?? '';
     return host.isNotEmpty ? host : 'New tab';
@@ -103,7 +105,7 @@ class TabSwitcherScreen extends StatelessWidget {
                                   style: const TextStyle(fontWeight: FontWeight.w600),
                                 ),
                                 Text(
-                                  t.url.isEmpty ? 'Blank page' : t.url,
+                                  t.url.isEmpty || t.url == kHomeUrl ? 'Start page' : t.url,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 12, color: Colors.white60),

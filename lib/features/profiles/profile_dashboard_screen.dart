@@ -93,7 +93,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
   Future<void> _appearance(AppProfile p) async {
     final pick = await showAppearanceDialog(
       context,
-      icon: p.icon ?? 'public',
+      icon: p.icon ?? 'person',
       color: p.color ?? '#7351FF',
     );
     if (pick == null) return;

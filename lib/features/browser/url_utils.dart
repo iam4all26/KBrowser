@@ -1,3 +1,6 @@
+/// Marker URL of the start page (never loaded into a WebView).
+const String kHomeUrl = 'kmulti://home';
+
 class SearchEngine {
   const SearchEngine(this.id, this.name, this.searchUrl, this.homeUrl);
   final String id;

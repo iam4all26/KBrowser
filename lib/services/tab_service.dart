@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../features/browser/url_utils.dart';
 import '../models/browser_tab.dart';
 
 /// Tabs of ONE profile (persisted in SQLite).
@@ -11,7 +12,7 @@ class TabService extends ChangeNotifier {
   final String profileId;
 
   /// Set by the browser screen from the profile's search engine / defaults.
-  String homeUrl = 'https://www.google.com';
+  String homeUrl = kHomeUrl;
   bool desktopDefault = false;
 
   List<BrowserTab> tabs = [];
@@ -92,7 +93,7 @@ class TabService extends ChangeNotifier {
     final index = tabs.indexWhere((t) => t.id == id);
     if (index < 0) return;
     final closed = tabs[index];
-    if (closed.url.isNotEmpty) {
+    if (closed.url.isNotEmpty && closed.url != kHomeUrl) {
       recentlyClosed.add(closed);
       if (recentlyClosed.length > 10) recentlyClosed.removeAt(0);
     }
@@ -109,7 +110,7 @@ class TabService extends ChangeNotifier {
 
   Future<void> closeAll() async {
     for (final t in tabs) {
-      if (t.url.isNotEmpty) recentlyClosed.add(t);
+      if (t.url.isNotEmpty && t.url != kHomeUrl) recentlyClosed.add(t);
     }
     while (recentlyClosed.length > 10) {
       recentlyClosed.removeAt(0);

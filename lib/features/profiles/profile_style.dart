@@ -21,7 +21,7 @@ class ProfileStyle {
     '#0091FF', '#F76B15', '#E93D82', '#12A594',
   ];
 
-  static IconData iconFor(String? key) => icons[key] ?? Icons.public;
+  static IconData iconFor(String? key) => icons[key] ?? Icons.person;
 
   static Color colorFor(String? hex) {
     if (hex == null || !RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(hex)) {

@@ -5,10 +5,12 @@ import 'package:kmulti_profiles/kmulti_profiles.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/app_profile.dart';
 import '../../services/profile_service.dart';
+import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
+import 'start_page.dart';
 import 'tab_switcher_screen.dart';
 import 'url_utils.dart';
 
@@ -29,6 +31,8 @@ class BrowserScreen extends StatefulWidget {
 class _BrowserScreenState extends State<BrowserScreen> {
   late final TabService _tabs = TabService(widget.service.db, widget.profile.id);
   late final HistoryService _history = HistoryService(widget.service.db, widget.profile.id);
+  late final BookmarkService _bookmarks = BookmarkService(widget.service.db, widget.profile.id);
+  int _startTab = 0;
   final Map<String, KWebViewController> _ctl = {};
   final Set<String> _live = {};
   final TextEditingController _url = TextEditingController();
@@ -57,7 +61,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
   Future<void> _init() async {
     try {
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
-      _tabs.homeUrl = _engine.homeUrl;
       _tabs.desktopDefault = _p.desktopMode;
       await _tabs.load();
       _tabs.addListener(_onTabsChanged);
@@ -187,7 +190,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   void _syncUrlText() {
     if (_focus.hasFocus) return;
     final t = _tabs.active;
-    _url.text = t?.url ?? '';
+    _url.text = (t == null || t.url == kHomeUrl) ? '' : t.url;
   }
 
   void _onFocus() {
@@ -215,7 +218,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
     c.state.addListener(() {
       if (!mounted) return;
       final s = c.state.value;
-      if (s.url.isNotEmpty) _tabs.updatePage(tabId, s.url, s.title);
+      if (s.url == 'about:blank') {
+        if (s.finished) _tabs.updatePage(tabId, kHomeUrl, '');
+      } else if (s.url.isNotEmpty) {
+        _tabs.updatePage(tabId, s.url, s.title);
+      }
       if (s.finished && s.url.isNotEmpty && !s.url.startsWith(_testBase)) {
         _history.record(s.url, s.title);
       }
@@ -232,8 +239,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (t.desktopMode) c.setDesktopMode(true, reload: false);
       if (t.url.startsWith(_testBase)) {
         c.loadTestPage();
-      } else {
-        c.loadUrl(t.url.isEmpty ? _engine.homeUrl : t.url);
+      } else if (t.url.isNotEmpty && t.url != kHomeUrl) {
+        c.loadUrl(t.url);
       }
       break;
     }
@@ -241,8 +248,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   void _go() {
-    final u = resolveInput(_url.text, _engine);
     _focus.unfocus();
+    if (_url.text.trim().isEmpty) {
+      _goHome();
+      return;
+    }
+    _open(resolveInput(_url.text, _engine));
+  }
+
+  /// Loads [u] in the active tab.
+  void _open(String u) {
     final id = _tabs.activeId;
     if (id == null) return;
     final c = _ctl[id];
@@ -253,7 +268,34 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
   }
 
-  Future<void> _newTab() => _tabs.addTab(url: _engine.homeUrl, desktop: _p.desktopMode);
+  /// Shows the start page in the active tab (the WebView is blanked).
+  void _goHome({int tab = 0}) {
+    final id = _tabs.activeId;
+    if (id == null) return;
+    _startTab = tab;
+    _ctl[id]?.loadUrl('about:blank');
+    _tabs.updatePage(id, kHomeUrl, '');
+  }
+
+  bool get _onStart {
+    final u = _tabs.active?.url ?? '';
+    return u.isEmpty || u == kHomeUrl;
+  }
+
+  Future<void> _newTab() {
+    _startTab = 0;
+    return _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
+  }
+
+  Future<void> _toggleBookmark(String url, String title, bool marked) async {
+    if (marked) {
+      await _bookmarks.removeUrl(url);
+      _toast('Bookmark removed');
+    } else {
+      await _bookmarks.add(url, title);
+      _toast('Bookmark added');
+    }
+  }
 
   Future<void> _toggleDesktop() async {
     final t = _tabs.active;
@@ -364,14 +406,15 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (!mounted) return;
     setState(() {
       _engine = SearchEngines.byId(id);
-      _tabs.homeUrl = _engine.homeUrl;
     });
   }
 
-  void _openMenu() {
+  Future<void> _openMenu() async {
     _focus.unfocus();
     final t = _tabs.active;
     final url = t?.url ?? '';
+    final marked = url.startsWith('http') && await _bookmarks.contains(url);
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -421,7 +464,14 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     child: Switch(value: t?.desktopMode ?? false, onChanged: (_) {}),
                   ),
                 ),
-                item(Icons.find_in_page_outlined, 'Find in page', _openFind),
+                if (url.startsWith('http'))
+                  item(
+                    marked ? Icons.bookmark : Icons.bookmark_add_outlined,
+                    marked ? 'Remove bookmark' : 'Add to bookmarks',
+                    () => _toggleBookmark(url, t?.title ?? '', marked),
+                  ),
+                item(Icons.bookmarks_outlined, 'Bookmarks', () => _goHome(tab: 1)),
+                if (!_onStart) item(Icons.find_in_page_outlined, 'Find in page', _openFind),
                 if (url.startsWith('http')) ...[
                   item(Icons.link, 'Copy link', () async {
                     await Clipboard.setData(ClipboardData(text: url));
@@ -572,9 +622,26 @@ class _BrowserScreenState extends State<BrowserScreen> {
               child: loading ? LinearProgressIndicator(value: progress, minHeight: 2) : null,
             ),
             Expanded(
-              child: IndexedStack(
-                index: activeIndex < 0 ? 0 : activeIndex,
-                children: [for (final t in _tabs.tabs) _tabView(t.id)],
+              child: Stack(
+                children: [
+                  IndexedStack(
+                    index: activeIndex < 0 ? 0 : activeIndex,
+                    children: [for (final t in _tabs.tabs) _tabView(t.id)],
+                  ),
+                  if (_onStart)
+                    Positioned.fill(
+                      child: StartPage(
+                        key: ValueKey('start_${_tabs.activeId}_$_startTab'),
+                        profileName: _p.displayName,
+                        engine: _engine,
+                        history: _history,
+                        bookmarks: _bookmarks,
+                        initialTab: _startTab,
+                        onOpen: _open,
+                        onOpenHistory: _openHistory,
+                      ),
+                    ),
+                ],
               ),
             ),
             SafeArea(
@@ -595,7 +662,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   IconButton(
                     tooltip: 'Home',
                     icon: const Icon(Icons.home_outlined),
-                    onPressed: () => c?.loadUrl(_engine.homeUrl),
+                    onPressed: _goHome,
                   ),
                   InkResponse(
                     onTap: _openSwitcher,

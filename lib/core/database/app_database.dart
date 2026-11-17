@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 3;
+  static const _version = 4;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -27,6 +27,7 @@ CREATE TABLE profiles (
 )''');
         await _createV2(db);
         await _createV3(db);
+        await _createV4(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -35,8 +36,26 @@ CREATE TABLE profiles (
           // Phase 1 profiles got 'person' only as an automatic default.
           await db.execute("UPDATE profiles SET icon = 'public' WHERE icon = 'person'");
         }
+        if (oldVersion < 4) {
+          await _createV4(db);
+          // The person icon is the default again (batch 6).
+          await db.execute("UPDATE profiles SET icon = 'person' WHERE icon = 'public'");
+        }
       },
     );
+  }
+
+  /// Version 4: bookmarks, one list per profile.
+  static Future<void> _createV4(Database db) async {
+    await db.execute('''
+CREATE TABLE bookmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+)''');
+    await db.execute('CREATE INDEX idx_bookmarks_profile ON bookmarks (profile_id, created_at)');
   }
 
   /// Version 3: browsing history, one list per profile.
