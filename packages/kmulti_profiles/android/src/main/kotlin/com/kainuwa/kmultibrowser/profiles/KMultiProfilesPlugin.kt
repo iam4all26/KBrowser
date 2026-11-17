@@ -3,6 +3,7 @@ package com.kainuwa.kmultibrowser.profiles
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -70,9 +71,25 @@ class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 }
                 "openDownloads" -> {
                     val ctx = appContext ?: error("no context")
-                    ctx.startActivity(
-                        Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    // The system Downloads app can be broken on some devices, so try the
+                    // file manager's Download folder first.
+                    val attempts = listOf(
+                        Intent(Intent.ACTION_VIEW).setDataAndType(
+                            Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"),
+                            "vnd.android.document/directory"
+                        ),
+                        Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
                     )
+                    var opened = false
+                    for (i in attempts) {
+                        try {
+                            ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            opened = true
+                            break
+                        } catch (e: Exception) {
+                        }
+                    }
+                    if (!opened) error("No app can show Downloads")
                     result.success(null)
                 }
                 "cookies" -> {

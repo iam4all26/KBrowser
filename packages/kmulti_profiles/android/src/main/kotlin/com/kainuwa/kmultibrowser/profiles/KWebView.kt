@@ -1,15 +1,17 @@
 package com.kainuwa.kmultibrowser.profiles
 
-import android.app.DownloadManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +28,12 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.concurrent.thread
 
 /**
  * One WebView permanently bound to one engine profile.
@@ -43,6 +51,8 @@ class KWebView(
     private val channel = MethodChannel(messenger, "kmulti/webview_$viewId")
     private var webView: WebView? = null
     private var mobileUa: String = ""
+    private var desktop: Boolean = false
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val root: View = build(context)
 
     init {
@@ -100,8 +110,13 @@ class KWebView(
                     notifyPage(view, url)
                 }
 
+                override fun onPageCommitVisible(view: WebView, url: String?) {
+                    applyDesktopViewport(view)
+                }
+
                 override fun onPageFinished(view: WebView, url: String?) {
                     profileCookies()?.flush()
+                    applyDesktopViewport(view)
                     notifyPage(view, url)
                 }
             }
@@ -183,27 +198,110 @@ class KWebView(
         return true
     }
 
+    private fun say(msg: String) {
+        mainHandler.post {
+            try {
+                channel.invokeMethod("onDownload", mapOf("message" to msg))
+            } catch (e: Throwable) {
+            }
+        }
+    }
+
+    /**
+     * Own downloader (does not use the Android DownloadManager). Uses THIS profile's
+     * cookies and saves into the public Downloads folder.
+     */
     private fun startDownload(url: String, userAgent: String?, contentDisposition: String?, mimeType: String?) {
         if (url.startsWith("blob:") || url.startsWith("data:")) {
-            channel.invokeMethod("onDownload", mapOf("message" to "This kind of download is not supported yet"))
+            say("This kind of download is not supported yet")
             return
         }
-        try {
-            val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
-            val request = DownloadManager.Request(Uri.parse(url))
-            if (!mimeType.isNullOrEmpty()) request.setMimeType(mimeType)
-            // Use THIS profile's cookies so logged-in downloads work and stay profile-bound.
-            val cookie = profileCookies()?.getCookie(url)
-            if (!cookie.isNullOrEmpty()) request.addRequestHeader("Cookie", cookie)
-            if (!userAgent.isNullOrEmpty()) request.addRequestHeader("User-Agent", userAgent)
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-            val dm = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            dm.enqueue(request)
-            channel.invokeMethod("onDownload", mapOf("message" to "Downloading $name"))
-        } catch (e: Throwable) {
-            channel.invokeMethod("onDownload", mapOf("message" to "Download failed: ${e.message}"))
+        val cookie = profileCookies()?.getCookie(url)
+        val referer = webView?.url
+        say("Downloading...")
+        thread(name = "kmulti-download") {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 20000
+                    readTimeout = 30000
+                    instanceFollowRedirects = true
+                    if (!cookie.isNullOrEmpty()) setRequestProperty("Cookie", cookie)
+                    if (!userAgent.isNullOrEmpty()) setRequestProperty("User-Agent", userAgent)
+                    if (!referer.isNullOrEmpty()) setRequestProperty("Referer", referer)
+                }
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    say("Download failed: HTTP $code")
+                    return@thread
+                }
+                val cd = conn.getHeaderField("Content-Disposition") ?: contentDisposition
+                val headerMime = conn.contentType?.substringBefore(';')?.trim()
+                val mime = if (!headerMime.isNullOrEmpty()) headerMime
+                else if (!mimeType.isNullOrEmpty()) mimeType
+                else "application/octet-stream"
+                val name = URLUtil.guessFileName(url, cd, mime)
+                val saved = conn.inputStream.use { saveToDownloads(name, mime, it) }
+                say("Saved to Downloads: $saved")
+            } catch (e: Throwable) {
+                say("Download failed: ${e.message}")
+            } finally {
+                conn?.disconnect()
+            }
         }
+    }
+
+    private fun saveToDownloads(name: String, mime: String, input: InputStream): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = appContext.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IOException("Could not create the file")
+            try {
+                val out = resolver.openOutputStream(uri) ?: throw IOException("Could not open the file")
+                out.use { input.copyTo(it) }
+                val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+                resolver.update(uri, done, null, null)
+            } catch (e: Throwable) {
+                try {
+                    resolver.delete(uri, null, null)
+                } catch (_: Throwable) {
+                }
+                throw e
+            }
+            val finalName = resolver.query(
+                uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null
+            )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+            return finalName ?: name
+        }
+        // Android 9 and below: public Downloads needs the storage permission, so
+        // fall back to the app's own downloads folder if it is refused.
+        var dir: File = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!(dir.exists() || dir.mkdirs()) || !dir.canWrite()) {
+            dir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: appContext.filesDir
+            dir.mkdirs()
+        }
+        var target = File(dir, name)
+        var i = 1
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        while (target.exists()) {
+            target = File(dir, "$base ($i)$ext")
+            i++
+        }
+        target.outputStream().use { input.copyTo(it) }
+        return target.name
+    }
+
+    private fun applyDesktopViewport(view: WebView) {
+        if (!desktop) return
+        view.evaluateJavascript(DESKTOP_JS, null)
     }
 
     private fun desktopUa(ua: String): String =
@@ -246,6 +344,7 @@ class KWebView(
             "setDesktopMode" -> {
                 val enabled = call.argument<Boolean>("enabled") ?: false
                 val reload = call.argument<Boolean>("reload") ?: true
+                desktop = enabled
                 wv.settings.userAgentString = if (enabled) desktopUa(mobileUa) else mobileUa
                 if (reload && wv.url != null) wv.reload()
                 result.success(null)
@@ -271,6 +370,12 @@ class KWebView(
 
     companion object {
         const val TEST_BASE_URL = "https://kmulti.test/"
+
+        private const val DESKTOP_JS =
+            "(function(){var m=document.querySelector('meta[name=viewport]');" +
+            "if(!m){m=document.createElement('meta');m.name='viewport';" +
+            "(document.head||document.documentElement).appendChild(m);}" +
+            "m.setAttribute('content','width=1024');})();"
 
         private const val TEST_HTML = """<!doctype html>
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
