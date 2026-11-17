@@ -56,14 +56,17 @@ class TabSwitcherScreen extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: ListView.builder(
+                child: ReorderableListView.builder(
+            buildDefaultDragHandles: false,
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             itemCount: tabs.tabs.length,
+            onReorder: (o, n) => tabs.move(o, n),
             itemBuilder: (_, i) {
               final t = tabs.tabs[i];
               final isActive = t.id == tabs.activeId;
               final title = _title(t);
               return Padding(
+                key: ValueKey(t.id),
                 padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Material(
                   color: AppColors.surface,
@@ -112,6 +115,13 @@ class TabSwitcherScreen extends StatelessWidget {
                             tooltip: 'Close tab',
                             icon: const Icon(Icons.close),
                             onPressed: () => tabs.close(t.id),
+                          ),
+                          ReorderableDragStartListener(
+                            index: i,
+                            child: const Padding(
+                              padding: EdgeInsets.fromLTRB(4, 8, 8, 8),
+                              child: Icon(Icons.drag_handle, color: Colors.white54),
+                            ),
                           ),
                         ],
                       ),

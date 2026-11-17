@@ -60,6 +60,14 @@ class KPageState {
   final bool finished;
 }
 
+/// Find-in-page result. [active] is 1-based (0 when there is no match).
+@immutable
+class KFindState {
+  const KFindState({this.active = 0, this.total = 0});
+  final int active;
+  final int total;
+}
+
 class KWebViewController {
   KWebViewController(int viewId)
       : _channel = MethodChannel('kmulti/webview_$viewId') {
@@ -78,6 +86,11 @@ class KWebViewController {
           progress.value = ((call.arguments as num) / 100).clamp(0.0, 1.0).toDouble();
         case 'onNewWindow':
           onNewWindow?.call(call.arguments as String);
+        case 'onFind':
+          final f = Map<String, dynamic>.from(call.arguments as Map);
+          final total = (f['total'] as num?)?.toInt() ?? 0;
+          final active = (f['active'] as num?)?.toInt() ?? 0;
+          find.value = KFindState(active: total == 0 ? 0 : active + 1, total: total);
         case 'onDownload':
           final a = Map<String, dynamic>.from(call.arguments as Map);
           onDownloadMessage?.call((a['message'] as String?) ?? '');
@@ -88,6 +101,9 @@ class KWebViewController {
 
   final MethodChannel _channel;
   final ValueNotifier<KPageState> state = ValueNotifier(const KPageState());
+
+  /// Latest find-in-page result.
+  final ValueNotifier<KFindState> find = ValueNotifier(const KFindState());
 
   /// Page load progress, 0.0 to 1.0 (1.0 means idle or finished).
   final ValueNotifier<double> progress = ValueNotifier(1.0);
@@ -105,6 +121,19 @@ class KWebViewController {
   Future<void> stop() => _channel.invokeMethod<void>('stop');
   Future<void> goBack() => _channel.invokeMethod<void>('goBack');
   Future<void> goForward() => _channel.invokeMethod<void>('goForward');
+  Future<void> findAll(String query) {
+    if (query.isEmpty) find.value = const KFindState();
+    return _channel.invokeMethod<void>('find', {'query': query});
+  }
+
+  Future<void> findNext(bool forward) =>
+      _channel.invokeMethod<void>('findNext', {'forward': forward});
+
+  Future<void> clearFind() {
+    find.value = const KFindState();
+    return _channel.invokeMethod<void>('clearFind');
+  }
+
   Future<void> setDesktopMode(bool enabled, {bool reload = true}) =>
       _channel.invokeMethod<void>('setDesktopMode', {'enabled': enabled, 'reload': reload});
 }

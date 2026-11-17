@@ -120,6 +120,23 @@ class TabService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Moves a tab (indexes as given by ReorderableListView.onReorder) and saves the order.
+  Future<void> move(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= tabs.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0 || newIndex >= tabs.length || newIndex == oldIndex) return;
+    final list = [...tabs];
+    final t = list.removeAt(oldIndex);
+    list.insert(newIndex, t);
+    tabs = [for (var i = 0; i < list.length; i++) list[i].copyWith(position: i)];
+    notifyListeners();
+    final batch = _db.batch();
+    for (final x in tabs) {
+      batch.update('tabs', {'position': x.position}, where: 'id = ?', whereArgs: [x.id]);
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<void> reopenClosed() async {
     if (recentlyClosed.isEmpty) return;
     final t = recentlyClosed.removeLast();

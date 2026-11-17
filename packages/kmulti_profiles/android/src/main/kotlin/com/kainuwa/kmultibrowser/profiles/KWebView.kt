@@ -170,6 +170,16 @@ class KWebView(
                     return true
                 }
             }
+            wv.setFindListener { activeOrdinal, numberOfMatches, isDoneCounting ->
+                channel.invokeMethod(
+                    "onFind",
+                    mapOf(
+                        "active" to activeOrdinal,
+                        "total" to numberOfMatches,
+                        "done" to isDoneCounting
+                    )
+                )
+            }
             wv.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                 startDownload(url, userAgent, contentDisposition, mimeType)
             }
@@ -350,6 +360,16 @@ class KWebView(
                 if (reload && wv.url != null) wv.reload()
                 result.success(null)
             }
+            "find" -> {
+                val q = call.argument<String>("query") ?: ""
+                if (q.isEmpty()) wv.clearMatches() else wv.findAllAsync(q)
+                result.success(null)
+            }
+            "findNext" -> {
+                wv.findNext(call.argument<Boolean>("forward") ?: true)
+                result.success(null)
+            }
+            "clearFind" -> { wv.clearMatches(); result.success(null) }
             else -> result.notImplemented()
         }
     }

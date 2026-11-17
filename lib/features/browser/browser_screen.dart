@@ -36,6 +36,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
   SearchEngine _engine = SearchEngines.google;
   bool _ready = false;
   String? _error;
+  bool _finding = false;
+  String? _findTabId;
+  final TextEditingController _findText = TextEditingController();
+  final FocusNode _findFocus = FocusNode();
 
   AppProfile get _p => widget.profile;
   KWebViewController? get _activeCtl {
@@ -73,6 +77,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _tabs.dispose();
     _focus.dispose();
     _url.dispose();
+    _findFocus.dispose();
+    _findText.dispose();
     super.dispose();
   }
 
@@ -88,7 +94,94 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (!mounted) return;
     _syncLive();
     _syncUrlText();
+    if (_finding && _tabs.activeId != _findTabId) {
+      _ctl[_findTabId]?.clearFind();
+      _finding = false;
+      _findTabId = null;
+    }
     setState(() {});
+  }
+
+  void _openFind() {
+    final id = _tabs.activeId;
+    if (id == null || _ctl[id] == null) {
+      _toast('Open a page first');
+      return;
+    }
+    _focus.unfocus();
+    _findText.clear();
+    setState(() {
+      _finding = true;
+      _findTabId = id;
+    });
+    _findFocus.requestFocus();
+  }
+
+  void _closeFind() {
+    _ctl[_findTabId]?.clearFind();
+    _findFocus.unfocus();
+    setState(() {
+      _finding = false;
+      _findTabId = null;
+    });
+  }
+
+  Widget _findBar(KWebViewController? c) {
+    final f = c?.find.value ?? const KFindState();
+    final hasText = _findText.text.isNotEmpty;
+    final label = hasText ? '${f.active}/${f.total}' : '';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 4, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _findText,
+              focusNode: _findFocus,
+              textInputAction: TextInputAction.search,
+              onChanged: (v) => c?.findAll(v),
+              onSubmitted: (_) {
+                c?.findNext(true);
+                _findFocus.requestFocus();
+              },
+              decoration: InputDecoration(
+                hintText: 'Find in page',
+                isDense: true,
+                filled: true,
+                fillColor: AppColors.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Previous match',
+            icon: const Icon(Icons.keyboard_arrow_up),
+            onPressed: f.total > 0 ? () => c?.findNext(false) : null,
+          ),
+          IconButton(
+            tooltip: 'Next match',
+            icon: const Icon(Icons.keyboard_arrow_down),
+            onPressed: f.total > 0 ? () => c?.findNext(true) : null,
+          ),
+          IconButton(
+            tooltip: 'Close',
+            icon: const Icon(Icons.close),
+            onPressed: _closeFind,
+          ),
+        ],
+      ),
+    );
   }
 
   void _syncUrlText() {
@@ -127,6 +220,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _history.record(s.url, s.title);
       }
       setState(() {});
+    });
+    c.find.addListener(() {
+      if (mounted && _finding && tabId == _findTabId) setState(() {});
     });
     c.progress.addListener(() {
       if (mounted && tabId == _tabs.activeId) setState(() {});
@@ -325,6 +421,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     child: Switch(value: t?.desktopMode ?? false, onChanged: (_) {}),
                   ),
                 ),
+                item(Icons.find_in_page_outlined, 'Find in page', _openFind),
                 if (url.startsWith('http')) ...[
                   item(Icons.link, 'Copy link', () async {
                     await Clipboard.setData(ClipboardData(text: url));
@@ -420,7 +517,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_focus.hasFocus) {
+        if (_finding) {
+          _closeFind();
+        } else if (_focus.hasFocus) {
           _focus.unfocus();
         } else if (canBack) {
           c?.goBack();
@@ -433,7 +532,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           bottom: false,
           child: Column(
           children: [
-            Padding(
+            if (_finding) _findBar(c) else Padding(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               child: TextField(
                 controller: _url,
