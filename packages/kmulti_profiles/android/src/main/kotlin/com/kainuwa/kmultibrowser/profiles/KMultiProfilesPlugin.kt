@@ -8,10 +8,15 @@ import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
+    private val fileChooser = FileChooserBridge()
+    private val permissions = PermissionBridge()
+    private var activityBinding: ActivityPluginBinding? = null
     private var channel: MethodChannel? = null
     private var appContext: Context? = null
 
@@ -22,7 +27,7 @@ class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
         binding.platformViewRegistry.registerViewFactory(
             "kmulti/webview",
-            KWebViewFactory(binding.binaryMessenger)
+            KWebViewFactory(binding.binaryMessenger, fileChooser, permissions)
         )
     }
 
@@ -30,6 +35,29 @@ class KMultiProfilesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         channel?.setMethodCallHandler(null)
         channel = null
         appContext = null
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activityBinding?.removeActivityResultListener(fileChooser)
+        activityBinding?.removeRequestPermissionsResultListener(permissions)
+        activityBinding = binding
+        fileChooser.activity = binding.activity
+        permissions.activity = binding.activity
+        binding.addActivityResultListener(fileChooser)
+        binding.addRequestPermissionsResultListener(permissions)
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
+        onAttachedToActivity(binding)
+
+    override fun onDetachedFromActivity() {
+        activityBinding?.removeActivityResultListener(fileChooser)
+        activityBinding?.removeRequestPermissionsResultListener(permissions)
+        activityBinding = null
+        fileChooser.activity = null
+        permissions.activity = null
     }
 
     private fun supported(): Boolean =

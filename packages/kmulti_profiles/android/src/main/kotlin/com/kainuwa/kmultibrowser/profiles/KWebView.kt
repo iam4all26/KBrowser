@@ -1,5 +1,7 @@
 package com.kainuwa.kmultibrowser.profiles
 
+import android.Manifest
+import android.app.AlertDialog
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -15,7 +17,10 @@ import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -44,7 +49,9 @@ class KWebView(
     context: Context,
     viewId: Int,
     messenger: BinaryMessenger,
-    private val profileName: String
+    private val profileName: String,
+    private val fileChooser: FileChooserBridge,
+    private val permissions: PermissionBridge
 ) : PlatformView, MethodChannel.MethodCallHandler {
 
     private val appContext: Context = context.applicationContext
@@ -53,6 +60,8 @@ class KWebView(
     private var mobileUa: String = ""
     private var desktop: Boolean = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Site decisions live as long as this WebView (one tab), never saved to disk.
+    private val siteDecisions = HashMap<String, Boolean>()
     private val root: View = build(context)
 
     init {
@@ -129,6 +138,66 @@ class KWebView(
                     notifyPage(view, view.url)
                 }
 
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    val wantVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                    val wantAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                    if (!wantVideo && !wantAudio) {
+                        request.deny()
+                        return
+                    }
+                    val origin = request.origin.toString()
+                    val what = when {
+                        wantVideo && wantAudio -> "your camera and microphone"
+                        wantVideo -> "your camera"
+                        else -> "your microphone"
+                    }
+                    askSite("media:$wantVideo:$wantAudio:$origin", origin, what) { allowed ->
+                        if (!allowed) {
+                            request.deny()
+                            return@askSite
+                        }
+                        val perms = ArrayList<String>()
+                        if (wantVideo) perms.add(Manifest.permission.CAMERA)
+                        if (wantAudio) perms.add(Manifest.permission.RECORD_AUDIO)
+                        permissions.request(perms) { res ->
+                            val grant = ArrayList<String>()
+                            if (wantVideo && res[Manifest.permission.CAMERA] == true) {
+                                grant.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                            }
+                            if (wantAudio && res[Manifest.permission.RECORD_AUDIO] == true) {
+                                grant.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                            }
+                            if (grant.isEmpty()) request.deny() else request.grant(grant.toTypedArray())
+                        }
+                    }
+                }
+
+                override fun onGeolocationPermissionsShowPrompt(
+                    origin: String,
+                    callback: GeolocationPermissions.Callback
+                ) {
+                    askSite("location:$origin", origin, "your location") { allowed ->
+                        if (!allowed) {
+                            callback.invoke(origin, false, false)
+                            return@askSite
+                        }
+                        permissions.request(
+                            listOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        ) { res ->
+                            callback.invoke(origin, res.values.any { it }, false)
+                        }
+                    }
+                }
+
+                override fun onShowFileChooser(
+                    webView: WebView,
+                    filePathCallback: ValueCallback<Array<Uri>>,
+                    fileChooserParams: WebChromeClient.FileChooserParams
+                ): Boolean = fileChooser.launch(fileChooserParams, filePathCallback)
+
                 override fun onCreateWindow(
                     view: WebView,
                     isDialog: Boolean,
@@ -187,6 +256,44 @@ class KWebView(
             wv
         } catch (e: Throwable) {
             errorView(context, "Could not open profile $profileName: ${e.message}")
+        }
+    }
+
+    /**
+     * Asks the person whether [origin] may use [what]. Allow and Block are
+     * remembered for this tab only; dismissing the dialog counts as "not now".
+     */
+    private fun askSite(key: String, origin: String, what: String, done: (Boolean) -> Unit) {
+        siteDecisions[key]?.let {
+            done(it)
+            return
+        }
+        val act = permissions.activity
+        if (act == null) {
+            done(false)
+            return
+        }
+        val host = try {
+            Uri.parse(origin).host ?: origin
+        } catch (e: Throwable) {
+            origin
+        }
+        try {
+            AlertDialog.Builder(act)
+                .setTitle("Allow $host?")
+                .setMessage("$host wants to use $what.")
+                .setPositiveButton("Allow") { _, _ ->
+                    siteDecisions[key] = true
+                    done(true)
+                }
+                .setNegativeButton("Block") { _, _ ->
+                    siteDecisions[key] = false
+                    done(false)
+                }
+                .setOnCancelListener { done(false) }
+                .show()
+        } catch (e: Throwable) {
+            done(false)
         }
     }
 
