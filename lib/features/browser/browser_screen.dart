@@ -11,6 +11,7 @@ import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
 import '../settings/settings_screen.dart';
+import 'bookmark_dialog.dart';
 import 'private_browser_screen.dart';
 import 'start_page.dart';
 import 'tab_switcher_screen.dart';
@@ -305,6 +306,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (marked) {
       await _bookmarks.removeUrl(url);
       _toast('Bookmark removed');
+      return;
+    }
+    final r = await showBookmarkDialog(context, url: url, title: title, editableUrl: false);
+    if (r == null) return;
+    await _addBookmark(r.url, r.title, r.allProfiles);
+  }
+
+  Future<void> _addBookmark(String url, String title, bool all) async {
+    if (all) {
+      final n = await BookmarkService.addToAll(
+        widget.service.db,
+        widget.service.profiles.map((p) => p.id),
+        url,
+        title,
+      );
+      _toast(n == 0 ? 'Already in all profiles' : 'Bookmark added to $n ${n == 1 ? 'profile' : 'profiles'}');
     } else {
       await _bookmarks.add(url, title);
       _toast('Bookmark added');
@@ -744,6 +761,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         initialTab: _startTab,
                         onOpen: _open,
                         onOpenHistory: _openHistory,
+                        onAddBookmark: _addBookmark,
                       ),
                     ),
                 ],

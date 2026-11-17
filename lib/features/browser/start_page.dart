@@ -6,6 +6,7 @@ import '../../models/history_entry.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
 import 'url_utils.dart';
+import 'bookmark_dialog.dart';
 
 class _Site {
   const _Site(this.name, this.url);
@@ -35,6 +36,7 @@ class StartPage extends StatefulWidget {
     required this.bookmarks,
     required this.onOpen,
     required this.onOpenHistory,
+    required this.onAddBookmark,
     this.initialTab = 0,
   });
 
@@ -44,6 +46,7 @@ class StartPage extends StatefulWidget {
   final BookmarkService bookmarks;
   final void Function(String url) onOpen;
   final VoidCallback onOpenHistory;
+  final Future<void> Function(String url, String title, bool allProfiles) onAddBookmark;
   final int initialTab;
 
   @override
@@ -88,6 +91,22 @@ class _StartPageState extends State<StartPage> {
       _hist = hist;
       _frequent = [for (final h in hosts.take(8)) _Site(h.replaceFirst('www.', ''), urls[h]!)];
     });
+  }
+
+  Widget _addBookmarkButton() => Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          icon: const Icon(Icons.add),
+          label: const Text('Add bookmark'),
+          onPressed: _addDialog,
+        ),
+      );
+
+  Future<void> _addDialog() async {
+    final r = await showBookmarkDialog(context, url: '', title: '', editableUrl: true);
+    if (r == null) return;
+    await widget.onAddBookmark(r.url, r.title, r.allProfiles);
+    if (mounted) _load();
   }
 
   void _submit(String text) {
@@ -154,6 +173,7 @@ class _StartPageState extends State<StartPage> {
       case 1:
         if (_marks.isEmpty) {
           return [
+            _addBookmarkButton(),
             Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
@@ -167,6 +187,7 @@ class _StartPageState extends State<StartPage> {
           ];
         }
         return [
+          _addBookmarkButton(),
           for (final b in _marks)
             ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 4),
