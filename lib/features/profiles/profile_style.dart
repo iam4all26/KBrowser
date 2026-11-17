@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class ProfileStyle {
   static const Map<String, IconData> icons = {
+    'public': Icons.public,
     'person': Icons.person,
     'work': Icons.work,
     'video': Icons.smart_display,
@@ -11,7 +12,6 @@ class ProfileStyle {
     'code': Icons.code,
     'games': Icons.sports_esports,
     'favorite': Icons.favorite,
-    'public': Icons.public,
     'home': Icons.home,
     'finance': Icons.account_balance,
   };
@@ -21,7 +21,7 @@ class ProfileStyle {
     '#0091FF', '#F76B15', '#E93D82', '#12A594',
   ];
 
-  static IconData iconFor(String? key) => icons[key] ?? Icons.person;
+  static IconData iconFor(String? key) => icons[key] ?? Icons.public;
 
   static Color colorFor(String? hex) {
     if (hex == null || !RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(hex)) {

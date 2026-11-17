@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../models/app_profile.dart';
 import '../../models/browser_tab.dart';
 import '../../services/tab_service.dart';
+import '../profiles/profile_style.dart';
 
 class TabSwitcherScreen extends StatelessWidget {
-  const TabSwitcherScreen({super.key, required this.tabs});
+  const TabSwitcherScreen({super.key, required this.tabs, required this.profile});
   final TabService tabs;
+  final AppProfile profile;
+
+  /// Popped as the result when the profile chip is tapped.
+  static const String switchProfile = 'switch_profile';
 
   String _title(BrowserTab t) {
     if (t.title.isNotEmpty) return t.title;
@@ -33,7 +39,24 @@ class TabSwitcherScreen extends StatelessWidget {
               ),
             ],
           ),
-          body: ListView.builder(
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ActionChip(
+                    avatar: CircleAvatar(
+                      backgroundColor: ProfileStyle.colorFor(profile.color),
+                      child: Icon(ProfileStyle.iconFor(profile.icon), size: 14, color: Colors.white),
+                    ),
+                    label: Text(profile.displayName),
+                    onPressed: () => Navigator.pop(context, switchProfile),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             itemCount: tabs.tabs.length,
             itemBuilder: (_, i) {
@@ -97,6 +120,9 @@ class TabSwitcherScreen extends StatelessWidget {
                 ),
               );
             },
+          ),
+              ),
+            ],
           ),
           bottomNavigationBar: SafeArea(
             child: Padding(

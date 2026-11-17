@@ -169,7 +169,7 @@ class _AppearanceDialog extends StatefulWidget {
 }
 
 class _AppearanceDialogState extends State<_AppearanceDialog> {
-  late String _icon = ProfileStyle.icons.containsKey(widget.icon) ? widget.icon : 'person';
+  late String _icon = ProfileStyle.icons.containsKey(widget.icon) ? widget.icon : 'public';
   late String _color = widget.color;
 
   @override

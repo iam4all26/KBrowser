@@ -117,7 +117,7 @@ class KWebView(
                 override fun onPageFinished(view: WebView, url: String?) {
                     profileCookies()?.flush()
                     applyDesktopViewport(view)
-                    notifyPage(view, url)
+                    notifyPage(view, url, true)
                 }
             }
             wv.webChromeClient = object : WebChromeClient() {
@@ -309,14 +309,15 @@ class KWebView(
             .replace(" Mobile", "")
             .replace("Version/4.0 ", "")
 
-    private fun notifyPage(view: WebView, url: String?) {
+    private fun notifyPage(view: WebView, url: String?, finished: Boolean = false) {
         channel.invokeMethod(
             "onPage",
             mapOf(
                 "url" to (url ?: view.url ?: ""),
                 "title" to (view.title ?: ""),
                 "canGoBack" to view.canGoBack(),
-                "canGoForward" to view.canGoForward()
+                "canGoForward" to view.canGoForward(),
+                "finished" to finished
             )
         )
     }

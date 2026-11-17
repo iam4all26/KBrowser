@@ -49,11 +49,15 @@ class KPageState {
     this.title = '',
     this.canGoBack = false,
     this.canGoForward = false,
+    this.finished = false,
   });
   final String url;
   final String title;
   final bool canGoBack;
   final bool canGoForward;
+
+  /// True for the event sent when a page finished loading.
+  final bool finished;
 }
 
 class KWebViewController {
@@ -68,6 +72,7 @@ class KWebViewController {
             title: (a['title'] as String?) ?? '',
             canGoBack: a['canGoBack'] == true,
             canGoForward: a['canGoForward'] == true,
+            finished: a['finished'] == true,
           );
         case 'onProgress':
           progress.value = ((call.arguments as num) / 100).clamp(0.0, 1.0).toDouble();

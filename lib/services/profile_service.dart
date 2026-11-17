@@ -78,7 +78,7 @@ class ProfileService extends ChangeNotifier {
       id: id,
       engineProfileName: id,
       displayName: 'Profile $n',
-      icon: 'person',
+      icon: 'public',
       color: defaultColors[(n - 1).abs() % defaultColors.length],
       createdAt: now,
       updatedAt: now,
@@ -197,6 +197,7 @@ class ProfileService extends ChangeNotifier {
       try {
         await KMultiProfiles.deleteProfile(id);
         await _db.delete('tabs', where: 'profile_id = ?', whereArgs: [id]);
+        await _db.delete('history', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('profile_settings', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('profiles', where: 'id = ?', whereArgs: [id]);
         deleted++;

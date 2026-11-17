@@ -5,7 +5,9 @@ import 'package:kmulti_profiles/kmulti_profiles.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/app_profile.dart';
 import '../../services/profile_service.dart';
+import '../../services/history_service.dart';
 import '../../services/tab_service.dart';
+import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
 import 'tab_switcher_screen.dart';
 import 'url_utils.dart';
@@ -26,6 +28,7 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> {
   late final TabService _tabs = TabService(widget.service.db, widget.profile.id);
+  late final HistoryService _history = HistoryService(widget.service.db, widget.profile.id);
   final Map<String, KWebViewController> _ctl = {};
   final Set<String> _live = {};
   final TextEditingController _url = TextEditingController();
@@ -95,6 +98,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   void _onFocus() {
+    if (mounted) setState(() {});
     if (_focus.hasFocus) {
       _url.selection = TextSelection(baseOffset: 0, extentOffset: _url.text.length);
     } else {
@@ -119,6 +123,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (!mounted) return;
       final s = c.state.value;
       if (s.url.isNotEmpty) _tabs.updatePage(tabId, s.url, s.title);
+      if (s.finished && s.url.isNotEmpty && !s.url.startsWith(_testBase)) {
+        _history.record(s.url, s.title);
+      }
       setState(() {});
     });
     c.progress.addListener(() {
@@ -134,7 +141,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       }
       break;
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _go() {
@@ -162,8 +169,77 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   Future<void> _openSwitcher() async {
     _focus.unfocus();
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => TabSwitcherScreen(tabs: _tabs)),
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => TabSwitcherScreen(tabs: _tabs, profile: _p)),
+    );
+    if (result == TabSwitcherScreen.switchProfile && mounted) _showProfileSwitcher();
+  }
+
+  Future<void> _openHistory() async {
+    _focus.unfocus();
+    final url = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => HistoryScreen(history: _history, profileName: _p.displayName),
+      ),
+    );
+    if (url != null && mounted) _activeCtl?.loadUrl(url);
+  }
+
+  /// Switch to another profile (its own browser, tabs and sessions) or go back
+  /// to the dashboard. This browser is closed first, so its WebViews are destroyed.
+  void _showProfileSwitcher() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final list = [...widget.service.profiles]..sort((a, b) => a.number.compareTo(b.number));
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.grid_view),
+                  title: const Text('All profiles'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.of(context).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final p in list)
+                        ListTile(
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: ProfileStyle.colorFor(p.color),
+                            child: Icon(ProfileStyle.iconFor(p.icon), size: 16, color: Colors.white),
+                          ),
+                          title: Text(p.displayName),
+                          trailing: p.id == _p.id ? const Icon(Icons.check) : null,
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            if (p.id == _p.id) return;
+                            Navigator.of(context).pushReplacement(
+                              MaterialPageRoute<void>(
+                                builder: (_) => BrowserScreen(profile: p, service: widget.service),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -222,6 +298,21 @@ class _BrowserScreenState extends State<BrowserScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  leading: CircleAvatar(
+                    radius: 16,
+                    backgroundColor: ProfileStyle.colorFor(_p.color),
+                    child: Icon(ProfileStyle.iconFor(_p.icon), size: 16, color: Colors.white),
+                  ),
+                  title: Text(_p.displayName),
+                  subtitle: const Text('Switch profile'),
+                  trailing: const Icon(Icons.swap_horiz),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showProfileSwitcher();
+                  },
+                ),
+                const Divider(height: 1),
                 item(Icons.add, 'New Tab', _newTab),
                 if (_tabs.recentlyClosed.isNotEmpty)
                   item(Icons.undo, 'Reopen closed tab', () => _tabs.reopenClosed()),
@@ -247,6 +338,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     }
                   }),
                 ],
+                item(Icons.history, 'History', _openHistory),
                 item(Icons.download_outlined, 'Downloads', () async {
                   try {
                     await KMultiProfiles.openDownloads();
@@ -315,7 +407,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
       );
     }
 
-    final color = ProfileStyle.colorFor(_p.color);
     final active = _tabs.active;
     final activeIndex = _tabs.tabs.indexWhere((t) => t.id == _tabs.activeId);
     final c = _activeCtl;
@@ -338,45 +429,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          titleSpacing: 12,
-          title: GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(6, 4, 10, 4),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 12,
-                    backgroundColor: color,
-                    child: Icon(ProfileStyle.iconFor(_p.icon), size: 14, color: Colors.white),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(_p.displayName, style: const TextStyle(fontSize: 14), overflow: TextOverflow.ellipsis),
-                  ),
-                  const Icon(Icons.arrow_drop_down, size: 20),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            IconButton(
-              tooltip: loading ? 'Stop' : 'Reload',
-              icon: Icon(loading ? Icons.close : Icons.refresh),
-              onPressed: () => loading ? c?.stop() : c?.reload(),
-            ),
-          ],
-        ),
-        body: Column(
+        body: SafeArea(
+          bottom: false,
+          child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               child: TextField(
                 controller: _url,
                 focusNode: _focus,
@@ -393,14 +451,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     borderSide: BorderSide.none,
                   ),
                   prefixIcon: Icon(secure ? Icons.lock_outline : Icons.public, size: 18),
-                  suffixIcon: IconButton(
-                    tooltip: 'Clear',
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () {
-                      _url.clear();
-                      _focus.requestFocus();
-                    },
-                  ),
+                  suffixIcon: _focus.hasFocus
+                      ? IconButton(
+                          tooltip: 'Clear',
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () {
+                            _url.clear();
+                            _focus.requestFocus();
+                          },
+                        )
+                      : IconButton(
+                          tooltip: loading ? 'Stop' : 'Reload',
+                          icon: Icon(loading ? Icons.close : Icons.refresh, size: 20),
+                          onPressed: () => loading ? c?.stop() : c?.reload(),
+                        ),
                 ),
               ),
             ),
@@ -460,6 +524,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );
