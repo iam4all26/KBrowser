@@ -1,0 +1,16 @@
+name: k_multi_browser
+description: K-Multi Browser - one app, many independent browsing profiles.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  kmulti_profiles:
+    path: packages/kmulti_profiles
+
+flutter:
+  uses-material-design: true
