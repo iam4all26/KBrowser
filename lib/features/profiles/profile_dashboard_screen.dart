@@ -1,8 +1,13 @@
+import '../home/home_stats_strip.dart';
+import '../home/popular_tab.dart';
+import '../home/shortcut_dialog.dart';
 import '../settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../models/app_profile.dart';
+import '../../models/home_shortcut.dart';
+import '../../services/home_service.dart';
 import '../../services/profile_service.dart';
 import '../browser/browser_screen.dart';
 import 'profile_dialogs.dart';
@@ -18,7 +23,11 @@ class ProfileDashboardScreen extends StatefulWidget {
   State<ProfileDashboardScreen> createState() => _ProfileDashboardScreenState();
 }
 
-class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
+class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabCtl = TabController(length: 2, vsync: this);
+  late final HomeService _home = HomeService(widget.service.db);
+  HomeStats? _stats;
   final Set<String> _selected = {};
   final TextEditingController _search = TextEditingController();
   bool _searching = false;
@@ -29,9 +38,93 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
   bool get _selecting => _selected.isNotEmpty;
 
   @override
+  void initState() {
+    super.initState();
+    _tabCtl.addListener(() {
+      if (!_tabCtl.indexIsChanging && mounted) setState(() {});
+    });
+    _home.addListener(_refreshStats);
+    _s.addListener(_refreshStats);
+    _home.load();
+    _refreshStats();
+  }
+
+  @override
   void dispose() {
+    _home.removeListener(_refreshStats);
+    _s.removeListener(_refreshStats);
+    _home.dispose();
+    _tabCtl.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshStats() async {
+    final st = await _home.stats();
+    if (mounted) setState(() => _stats = st);
+  }
+
+  Future<void> _addSite() async {
+    final r = await showShortcutDialog(context);
+    if (r == null) return;
+    final added = await _home.add(url: r.url, title: r.title, pinned: r.pinned, image: r.image);
+    _toast(added ? 'Added to Popular' : 'That site is already in Popular');
+  }
+
+  /// Asks which profile should open a Popular site.
+  Future<void> _openShortcut(HomeShortcut s) async {
+    final list = [..._s.profiles]..sort((a, b) => a.number.compareTo(b.number));
+    if (list.isEmpty) {
+      _toast('Create a profile first');
+      return;
+    }
+    if (!_s.supported) {
+      _toast('Profiles are not supported on this device');
+      return;
+    }
+    AppProfile? chosen;
+    if (list.length == 1) {
+      chosen = list.first;
+    } else {
+      chosen = await showModalBottomSheet<AppProfile>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (ctx) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text('Open ${s.title} in which profile?',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final p in list)
+                        ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: ProfileStyle.colorFor(p.color),
+                            child: Icon(ProfileStyle.iconFor(p.icon), color: Colors.white, size: 20),
+                          ),
+                          title: Text(p.displayName),
+                          subtitle: Text(ProfileStyle.lastActiveShort(p.lastActiveAt)),
+                          onTap: () => Navigator.pop(ctx, p),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (chosen != null && mounted) await _open(chosen, initialUrl: s.url);
   }
 
   void _toast(String msg) {
@@ -75,10 +168,13 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
     }
   }
 
-  Future<void> _open(AppProfile p) async {
+  Future<void> _open(AppProfile p, {String? initialUrl}) async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => BrowserScreen(profile: p, service: _s)),
+      MaterialPageRoute<void>(
+        builder: (_) => BrowserScreen(profile: p, service: _s, initialUrl: initialUrl),
+      ),
     );
+    _refreshStats();
   }
 
   Future<void> _rename(AppProfile p) async {
@@ -201,15 +297,23 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
           },
           child: Scaffold(
             appBar: _appBar(),
-            floatingActionButton: _s.supported && !_selecting
+            floatingActionButton: _tabCtl.index == 1
                 ? FloatingActionButton.extended(
-                    onPressed: _busy ? null : _create,
+                    onPressed: _addSite,
                     backgroundColor: AppColors.gold,
                     foregroundColor: AppColors.darkBase,
                     icon: const Icon(Icons.add),
-                    label: const Text('Create Profiles'),
+                    label: const Text('Add site'),
                   )
-                : null,
+                : (_s.supported && !_selecting
+                    ? FloatingActionButton.extended(
+                        onPressed: _busy ? null : _create,
+                        backgroundColor: AppColors.gold,
+                        foregroundColor: AppColors.darkBase,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create Profiles'),
+                      )
+                    : null),
             body: Column(
               children: [
                 if (_busy) const LinearProgressIndicator(minHeight: 3),
@@ -224,36 +328,22 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
                       style: const TextStyle(fontSize: 13),
                     ),
                   ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Your Profiles (${_s.profiles.length})',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                  ),
+                HomeStatsStrip(stats: _stats, profiles: _s.profiles),
+                TabBar(
+                  controller: _tabCtl,
+                  tabs: [
+                    Tab(text: 'Profiles (${_s.profiles.length})'),
+                    Tab(text: 'Popular (${_stats?.shortcuts ?? 0})'),
+                  ],
                 ),
                 Expanded(
-                  child: items.isEmpty
-                      ? Center(
-                          child: Text(
-                            _s.profiles.isEmpty
-                                ? 'No profiles yet. Tap Create Profiles.'
-                                : 'No profile matches your search.',
-                          ),
-                        )
-                      : GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 130,
-                            mainAxisSpacing: 10,
-                            crossAxisSpacing: 10,
-                            childAspectRatio: 0.9,
-                          ),
-                          itemCount: items.length,
-                          itemBuilder: (_, i) => _card(items[i]),
-                        ),
+                  child: TabBarView(
+                    controller: _tabCtl,
+                    children: [
+                      _profilesView(items),
+                      PopularTab(home: _home, onOpen: _openShortcut, onToast: _toast),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -261,6 +351,26 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
         );
       },
     );
+  }
+
+  Widget _profilesView(List<AppProfile> items) {
+    return items.isEmpty
+        ? Center(
+            child: Text(
+              _s.profiles.isEmpty ? 'No profiles yet. Tap Create Profiles.' : 'No profile matches your search.',
+            ),
+          )
+        : GridView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 130,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.9,
+            ),
+            itemCount: items.length,
+            itemBuilder: (_, i) => _card(items[i]),
+          );
   }
 
   Widget _card(AppProfile p) {

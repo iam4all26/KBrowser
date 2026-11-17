@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 5;
+  static const _version = 6;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -29,6 +29,7 @@ CREATE TABLE profiles (
         await _createV3(db);
         await _createV4(db);
         await _createV5(db);
+        await _createV6(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -43,8 +44,22 @@ CREATE TABLE profiles (
           await db.execute("UPDATE profiles SET icon = 'person' WHERE icon = 'public'");
         }
         if (oldVersion < 5) await _createV5(db);
+        if (oldVersion < 6) await _createV6(db);
       },
     );
+  }
+
+  /// Version 6: Popular sites on the main Home (app-wide, not per profile).
+  static Future<void> _createV6(Database db) async {
+    await db.execute('''
+CREATE TABLE home_shortcuts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL DEFAULT '',
+    image BLOB,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+)''');
   }
 
   /// Version 5: app-wide settings (theme mode, accent colour).

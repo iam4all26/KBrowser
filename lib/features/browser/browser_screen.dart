@@ -7,6 +7,7 @@ import '../../models/app_profile.dart';
 import '../../services/profile_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
+import '../../services/home_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
@@ -23,8 +24,10 @@ const String _testBase = 'https://kmulti.test/';
 /// Only tabs that were opened in this session have a live WebView; restored
 /// background tabs get theirs when you switch to them (saves memory).
 class BrowserScreen extends StatefulWidget {
-  const BrowserScreen({super.key, required this.profile, required this.service});
+  const BrowserScreen({super.key, required this.profile, required this.service, this.initialUrl});
   final AppProfile profile;
+  /// If set, this address opens in a new tab as soon as the profile opens.
+  final String? initialUrl;
   final ProfileService service;
 
   @override
@@ -66,6 +69,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
       _tabs.desktopDefault = _p.desktopMode;
       await _tabs.load();
+      final first = widget.initialUrl;
+      if (first != null && first.isNotEmpty) {
+        await _tabs.addTab(url: first, desktop: _p.desktopMode);
+      }
       _tabs.addListener(_onTabsChanged);
       _syncLive();
       widget.service.touchActive(_p.id);
@@ -310,22 +317,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
     final r = await showBookmarkDialog(context, url: url, title: title, editableUrl: false);
     if (r == null) return;
-    await _addBookmark(r.url, r.title, r.allProfiles);
+    await _addBookmark(r.url, r.title, r.addToHome);
   }
 
-  Future<void> _addBookmark(String url, String title, bool all) async {
-    if (all) {
-      final n = await BookmarkService.addToAll(
-        widget.service.db,
-        widget.service.profiles.map((p) => p.id),
-        url,
-        title,
-      );
-      _toast(n == 0 ? 'Already in all profiles' : 'Bookmark added to $n ${n == 1 ? 'profile' : 'profiles'}');
-    } else {
-      await _bookmarks.add(url, title);
+  Future<void> _addBookmark(String url, String title, bool addToHome) async {
+    await _bookmarks.add(url, title);
+    if (!addToHome) {
       _toast('Bookmark added');
+      return;
     }
+    final added = await HomeService(widget.service.db).add(url: url, title: title);
+    _toast(added ? 'Bookmark added, and shown on Home' : 'Bookmark added (already on Home)');
   }
 
   Future<void> _toggleDesktop() async {

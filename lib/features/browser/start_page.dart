@@ -46,7 +46,7 @@ class StartPage extends StatefulWidget {
   final BookmarkService bookmarks;
   final void Function(String url) onOpen;
   final VoidCallback onOpenHistory;
-  final Future<void> Function(String url, String title, bool allProfiles) onAddBookmark;
+  final Future<void> Function(String url, String title, bool addToHome) onAddBookmark;
   final int initialTab;
 
   @override
@@ -105,7 +105,7 @@ class _StartPageState extends State<StartPage> {
   Future<void> _addDialog() async {
     final r = await showBookmarkDialog(context, url: '', title: '', editableUrl: true);
     if (r == null) return;
-    await widget.onAddBookmark(r.url, r.title, r.allProfiles);
+    await widget.onAddBookmark(r.url, r.title, r.addToHome);
     if (mounted) _load();
   }
 

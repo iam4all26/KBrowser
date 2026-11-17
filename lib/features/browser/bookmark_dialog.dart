@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 class BookmarkInput {
-  const BookmarkInput(this.url, this.title, this.allProfiles);
+  const BookmarkInput(this.url, this.title, this.addToHome);
   final String url;
   final String title;
-  final bool allProfiles;
+  final bool addToHome;
 }
 
-/// Asks for a bookmark name and address, and whether to add it to every profile.
+/// Asks for a bookmark name and address, and whether to also show it on the main app Home (Popular).
 Future<BookmarkInput?> showBookmarkDialog(
   BuildContext context, {
   required String url,
@@ -33,7 +33,7 @@ class _BookmarkDialog extends StatefulWidget {
 class _BookmarkDialogState extends State<_BookmarkDialog> {
   late final TextEditingController _title = TextEditingController(text: widget.title);
   late final TextEditingController _url = TextEditingController(text: widget.url);
-  bool _all = false;
+  bool _home = false;
   String? _error;
 
   @override
@@ -58,7 +58,7 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
     }
     var t = _title.text.trim();
     if (t.isEmpty) t = host;
-    Navigator.pop(context, BookmarkInput(u, t, _all));
+    Navigator.pop(context, BookmarkInput(u, t, _home));
   }
 
   @override
@@ -87,10 +87,10 @@ class _BookmarkDialogState extends State<_BookmarkDialog> {
             const SizedBox(height: 4),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Add to all profiles'),
-              subtitle: const Text('Every existing profile gets this bookmark. Profiles created later start empty.'),
-              value: _all,
-              onChanged: (v) => setState(() => _all = v),
+              title: const Text('Add to Home'),
+              subtitle: const Text('Also show this site in Popular on the main Home, for every profile.'),
+              value: _home,
+              onChanged: (v) => setState(() => _home = v),
             ),
           ],
         ),

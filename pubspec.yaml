@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   sqflite: ^2.4.1
+  image_picker: ^1.1.2
   kmulti_profiles:
     path: packages/kmulti_profiles
 

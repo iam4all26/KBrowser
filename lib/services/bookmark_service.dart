@@ -41,33 +41,6 @@ class BookmarkService {
     });
   }
 
-  /// Adds the bookmark to every profile in [profileIds] that does not have it yet.
-  /// Returns how many profiles got it.
-  static Future<int> addToAll(
-    Database db,
-    Iterable<String> profileIds,
-    String url,
-    String title,
-  ) async {
-    final rows = await db.query(
-      'bookmarks',
-      columns: ['profile_id'],
-      where: 'url = ?',
-      whereArgs: [url],
-    );
-    final have = rows.map((r) => r['profile_id'] as String).toSet();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final batch = db.batch();
-    var added = 0;
-    for (final id in profileIds) {
-      if (have.contains(id)) continue;
-      batch.insert('bookmarks', {'profile_id': id, 'url': url, 'title': title, 'created_at': now});
-      added++;
-    }
-    await batch.commit(noResult: true);
-    return added;
-  }
-
   Future<void> removeUrl(String url) =>
       _db.delete('bookmarks', where: 'profile_id = ? AND url = ?', whereArgs: [profileId, url]);
 
