@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 4;
+  static const _version = 5;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -28,6 +28,7 @@ CREATE TABLE profiles (
         await _createV2(db);
         await _createV3(db);
         await _createV4(db);
+        await _createV5(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -41,8 +42,14 @@ CREATE TABLE profiles (
           // The person icon is the default again (batch 6).
           await db.execute("UPDATE profiles SET icon = 'person' WHERE icon = 'public'");
         }
+        if (oldVersion < 5) await _createV5(db);
       },
     );
+  }
+
+  /// Version 5: app-wide settings (theme mode, accent colour).
+  static Future<void> _createV5(Database db) async {
+    await db.execute('CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT)');
   }
 
   /// Version 4: bookmarks, one list per profile.

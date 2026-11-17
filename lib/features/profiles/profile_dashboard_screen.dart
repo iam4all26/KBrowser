@@ -1,3 +1,4 @@
+import '../settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -124,6 +125,10 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
     });
   }
 
+  void _openSettings() {
+    Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+  }
+
   PreferredSizeWidget _appBar() {
     if (_selecting) {
       return AppBar(
@@ -156,6 +161,11 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
             )
           : const Text('K-Multi Browser'),
       actions: [
+        IconButton(
+          tooltip: 'Settings',
+          icon: const Icon(Icons.settings_outlined),
+          onPressed: _openSettings,
+        ),
         IconButton(
           tooltip: 'Search',
           icon: Icon(_searching ? Icons.close : Icons.search),
@@ -257,7 +267,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
     final color = ProfileStyle.colorFor(p.color);
     final selected = _selected.contains(p.id);
     return Material(
-      color: selected ? AppColors.purple.withValues(alpha: 0.25) : AppColors.surface,
+      color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25) : context.panel,
       borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -290,7 +300,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                    style: TextStyle(fontSize: 11, color: context.muted),
                   ),
                 ],
               ),

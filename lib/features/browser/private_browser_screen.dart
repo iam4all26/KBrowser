@@ -291,11 +291,11 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'No history, bookmarks or tabs are saved. Cookies and site data are deleted when you close this window. '
             'Files you download stay in your Downloads folder.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: context.muted),
           ),
           const SizedBox(height: 24),
           TextField(
@@ -307,7 +307,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
               hintText: 'Search ${widget.engine.name} or type an address',
               isDense: true,
               filled: true,
-              fillColor: AppColors.surface,
+              fillColor: context.panel,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(24),
                 borderSide: BorderSide.none,
@@ -361,7 +361,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
           child: Column(
             children: [
               Container(
-                color: const Color(0xFF2B2540),
+                color: context.panel,
                 padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
                 child: Row(
                   children: [
@@ -389,7 +389,7 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
                     hintText: 'Search or enter address',
                     isDense: true,
                     filled: true,
-                    fillColor: AppColors.surface,
+                    fillColor: context.panel,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(24),
                       borderSide: BorderSide.none,

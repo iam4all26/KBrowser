@@ -100,7 +100,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       rows.add(Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         child: Material(
-          color: AppColors.surface,
+          color: context.panel,
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
@@ -111,7 +111,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 children: [
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.white12,
+                    backgroundColor: context.faint,
                     child: Text(title.characters.first.toUpperCase()),
                   ),
                   const SizedBox(width: 12),
@@ -122,11 +122,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w600)),
                         Text(e.url, maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12, color: Colors.white60)),
+                            style: TextStyle(fontSize: 12, color: context.muted)),
                       ],
                     ),
                   ),
-                  Text(_time(when), style: const TextStyle(fontSize: 12, color: Colors.white60)),
+                  Text(_time(when), style: TextStyle(fontSize: 12, color: context.muted)),
                   IconButton(
                     tooltip: 'Remove',
                     icon: const Icon(Icons.close, size: 18),

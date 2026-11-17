@@ -9,12 +9,12 @@ class AppColors {
 }
 
 class AppTheme {
-  static ThemeData dark() {
+  static ThemeData dark([Color accent = AppColors.purple]) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.purple,
+      seedColor: accent,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: AppColors.purple,
+      primary: accent,
       secondary: AppColors.gold,
       surface: AppColors.darkBase,
     );
@@ -30,11 +30,35 @@ class AppTheme {
     );
   }
 
-  static ThemeData light() {
+  static ThemeData light([Color accent = AppColors.purple]) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.purple,
+      seedColor: accent,
       brightness: Brightness.light,
-    ).copyWith(primary: AppColors.purple, secondary: AppColors.gold);
-    return ThemeData(useMaterial3: true, colorScheme: scheme);
+    ).copyWith(primary: accent, secondary: AppColors.gold, surface: const Color(0xFFF7F5FC));
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: const Color(0xFFF7F5FC),
+      appBarTheme: AppBarTheme(
+        backgroundColor: const Color(0xFFF7F5FC),
+        foregroundColor: scheme.onSurface,
+        elevation: 0,
+      ),
+    );
   }
+}
+
+/// Theme-aware colours that replace the old hard-coded white and dark values,
+/// so every screen reads well in both light and dark mode.
+extension AppThemeContext on BuildContext {
+  bool get _isDark => Theme.of(this).brightness == Brightness.dark;
+
+  /// Cards, text fields and panels.
+  Color get panel => _isDark ? AppColors.surface : const Color(0xFFECE8F7);
+
+  /// Secondary text and icons.
+  Color get muted => Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.6);
+
+  /// Subtle fills (avatars, unselected chips).
+  Color get faint => Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.12);
 }

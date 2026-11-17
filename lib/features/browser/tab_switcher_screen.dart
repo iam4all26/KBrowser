@@ -71,11 +71,11 @@ class TabSwitcherScreen extends StatelessWidget {
                 key: ValueKey(t.id),
                 padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Material(
-                  color: AppColors.surface,
+                  color: context.panel,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(
-                      color: isActive ? AppColors.purple : Colors.transparent,
+                      color: isActive ? Theme.of(context).colorScheme.primary : Colors.transparent,
                       width: 2,
                     ),
                   ),
@@ -90,7 +90,7 @@ class TabSwitcherScreen extends StatelessWidget {
                       child: Row(
                         children: [
                           CircleAvatar(
-                            backgroundColor: Colors.white12,
+                            backgroundColor: context.faint,
                             child: Text(title.characters.first.toUpperCase()),
                           ),
                           const SizedBox(width: 12),
@@ -108,7 +108,7 @@ class TabSwitcherScreen extends StatelessWidget {
                                   t.url.isEmpty || t.url == kHomeUrl ? 'Start page' : t.url,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12, color: Colors.white60),
+                                  style: TextStyle(fontSize: 12, color: context.muted),
                                 ),
                               ],
                             ),
@@ -120,9 +120,9 @@ class TabSwitcherScreen extends StatelessWidget {
                           ),
                           ReorderableDragStartListener(
                             index: i,
-                            child: const Padding(
-                              padding: EdgeInsets.fromLTRB(4, 8, 8, 8),
-                              child: Icon(Icons.drag_handle, color: Colors.white54),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
+                              child: Icon(Icons.drag_handle, color: context.muted),
                             ),
                           ),
                         ],

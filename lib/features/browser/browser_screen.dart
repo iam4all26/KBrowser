@@ -10,6 +10,7 @@ import '../../services/history_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
+import '../settings/settings_screen.dart';
 import 'private_browser_screen.dart';
 import 'start_page.dart';
 import 'tab_switcher_screen.dart';
@@ -152,7 +153,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 hintText: 'Find in page',
                 isDense: true,
                 filled: true,
-                fillColor: AppColors.surface,
+                fillColor: context.panel,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
@@ -162,7 +163,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   padding: const EdgeInsets.only(right: 12),
                   child: Center(
                     widthFactor: 1,
-                    child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                    child: Text(label, style: TextStyle(fontSize: 12, color: context.muted)),
                   ),
                 ),
               ),
@@ -286,6 +287,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
   Future<void> _newTab() {
     _startTab = 0;
     return _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
+  }
+
+  void _openSettings() {
+    _focus.unfocus();
+    Navigator.of(context).push<void>(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
   }
 
   void _openPrivate() {
@@ -503,6 +509,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   }
                 }),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
+                item(Icons.settings_outlined, 'Settings', _openSettings),
                 item(Icons.science_outlined, 'Isolation test page', () => _activeCtl?.loadTestPage()),
                 item(Icons.cookie_outlined, 'Show cookies for this page', _showCookies),
                 item(Icons.delete_sweep_outlined, 'Close all tabs', () => _tabs.closeAll()),
@@ -603,7 +610,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   hintText: 'Search or enter address',
                   isDense: true,
                   filled: true,
-                  fillColor: AppColors.surface,
+                  fillColor: context.panel,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
@@ -681,7 +688,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                       height: 26,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white, width: 1.6),
+                        border: Border.all(color: Theme.of(context).colorScheme.onSurface, width: 1.6),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(

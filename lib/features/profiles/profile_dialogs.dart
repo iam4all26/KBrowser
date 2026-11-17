@@ -1,3 +1,4 @@
+import '../../core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -198,7 +199,7 @@ class _AppearanceDialogState extends State<_AppearanceDialog> {
                         color: ProfileStyle.colorFor(c),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: c == _color ? Colors.white : Colors.transparent,
+                          color: c == _color ? Theme.of(context).colorScheme.onSurface : Colors.transparent,
                           width: 3,
                         ),
                       ),
@@ -220,10 +221,10 @@ class _AppearanceDialogState extends State<_AppearanceDialog> {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: e.key == _icon ? selectedColor : Colors.white12,
+                        color: e.key == _icon ? selectedColor : context.faint,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(e.value, color: Colors.white),
+                      child: Icon(e.value, color: e.key == _icon ? Colors.white : Theme.of(context).colorScheme.onSurface),
                     ),
                   ),
               ],

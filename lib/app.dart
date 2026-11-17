@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/database/app_database.dart';
+import 'core/settings/app_settings.dart';
 import 'core/theme/app_theme.dart';
 import 'features/profiles/profile_dashboard_screen.dart';
 import 'services/profile_service.dart';
@@ -10,13 +11,19 @@ class KMultiBrowserApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'K-Multi Browser',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.dark,
-      home: const _Boot(),
+    return ListenableBuilder(
+      listenable: AppSettings.instance,
+      builder: (context, _) {
+        final s = AppSettings.instance;
+        return MaterialApp(
+          title: 'K-Multi Browser',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(s.accent),
+          darkTheme: AppTheme.dark(s.accent),
+          themeMode: s.themeMode,
+          home: const _Boot(),
+        );
+      },
     );
   }
 }
@@ -42,6 +49,7 @@ class _BootState extends State<_Boot> {
   Future<void> _start() async {
     try {
       final db = await AppDatabase.open();
+      await AppSettings.instance.load(db);
       final service = ProfileService(db);
       await service.init();
       if (!mounted) return;

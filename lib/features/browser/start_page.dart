@@ -104,8 +104,8 @@ class _StartPageState extends State<StartPage> {
   Widget _avatar(String name) {
     final c = name.isEmpty ? '?' : name.characters.first.toUpperCase();
     return CircleAvatar(
-      backgroundColor: AppColors.purple.withValues(alpha: 0.25),
-      foregroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.25),
+      foregroundColor: Theme.of(context).colorScheme.onSurface,
       child: Text(c),
     );
   }
@@ -128,8 +128,8 @@ class _StartPageState extends State<StartPage> {
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: AppColors.surface,
-                    foregroundColor: Colors.white,
+                    backgroundColor: context.panel,
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
                     child: Text(s.name.characters.first.toUpperCase(),
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                   ),
@@ -145,7 +145,7 @@ class _StartPageState extends State<StartPage> {
 
   Widget _sectionTitle(String t) => Padding(
         padding: const EdgeInsets.fromLTRB(4, 14, 4, 4),
-        child: Text(t, style: const TextStyle(fontSize: 13, color: Colors.white60, fontWeight: FontWeight.w600)),
+        child: Text(t, style: TextStyle(fontSize: 13, color: context.muted, fontWeight: FontWeight.w600)),
       );
 
   List<Widget> _body() {
@@ -161,7 +161,7 @@ class _StartPageState extends State<StartPage> {
                     ? 'No bookmarks match.'
                     : 'No bookmarks yet. Open a page, then Menu > Add to bookmarks.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white60),
+                style: TextStyle(color: context.muted),
               ),
             ),
           ];
@@ -193,7 +193,7 @@ class _StartPageState extends State<StartPage> {
               child: Text(
                 filtering ? 'No history matches.' : 'No history yet.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white60),
+                style: TextStyle(color: context.muted),
               ),
             ),
           ];
@@ -237,7 +237,7 @@ class _StartPageState extends State<StartPage> {
         children: [
           const Text('K-Multi Browser', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
-          Text(widget.profileName, style: const TextStyle(color: Colors.white60)),
+          Text(widget.profileName, style: TextStyle(color: context.muted)),
           const SizedBox(height: 16),
           TextField(
             controller: _q,
@@ -248,7 +248,7 @@ class _StartPageState extends State<StartPage> {
               hintText: 'Search ${widget.engine.name}, type an address, or filter below',
               isDense: true,
               filled: true,
-              fillColor: AppColors.surface,
+              fillColor: context.panel,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(24),
                 borderSide: BorderSide.none,
