@@ -576,7 +576,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 if (t != null) item(Icons.copy_all_outlined, 'Duplicate tab', () => _tabs.duplicate(t.id)),
                 item(
                   Icons.desktop_windows_outlined,
-                  'Request Desktop Site',
+                  'Desktop site',
                   _toggleDesktop,
                   trailing: IgnorePointer(
                     child: Switch(value: t?.desktopMode ?? false, onChanged: (_) {}),

@@ -348,6 +348,9 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
                 HomeStatsStrip(stats: _stats, profiles: _s.profiles),
                 TabBar(
                   controller: _tabCtl,
+                  labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  unselectedLabelStyle: const TextStyle(fontSize: 13),
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 4),
                   tabs: [
                     Tab(text: 'Profiles (${_s.profiles.length})'),
                     Tab(text: 'Popular (${_stats?.shortcuts ?? 0})'),

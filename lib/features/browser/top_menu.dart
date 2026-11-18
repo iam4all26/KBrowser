@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 
 /// Menu that drops down from the top-right, under the toolbar, and is at most
-/// half of the screen high (it scrolls if there is more). Use Navigator.pop(ctx)
+/// 72% of the screen high (it scrolls if there is more), narrow and compact like Chrome's menu. Use Navigator.pop(ctx)
 /// with the context given to [builder] to close it.
 Future<void> showTopMenu(BuildContext context, {required Widget Function(BuildContext ctx) builder}) {
   final media = MediaQuery.of(context);
-  final width = media.size.width < 332 ? media.size.width - 16 : 316.0;
+  final width = media.size.width < 272 ? media.size.width - 16 : 256.0;
   final top = media.padding.top + 56;
+  final maxHeight = (media.size.height * 0.72).clamp(0.0, media.size.height - top - media.padding.bottom - 12);
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -22,7 +23,7 @@ Future<void> showTopMenu(BuildContext context, {required Widget Function(BuildCo
           right: 8,
           width: width,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: media.size.height * 0.5),
+            constraints: BoxConstraints(maxHeight: maxHeight),
             child: Material(
               elevation: 10,
               color: ctx.panel,
@@ -32,7 +33,18 @@ Future<void> showTopMenu(BuildContext context, {required Widget Function(BuildCo
                 context: ctx,
                 removeTop: true,
                 removeBottom: true,
-                child: SingleChildScrollView(child: builder(ctx)),
+                child: Theme(
+                  data: Theme.of(ctx).copyWith(
+                    listTileTheme: const ListTileThemeData(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      horizontalTitleGap: 12,
+                      minLeadingWidth: 24,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                  ),
+                  child: SingleChildScrollView(child: builder(ctx)),
+                ),
               ),
             ),
           ),
