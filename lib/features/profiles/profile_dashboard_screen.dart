@@ -9,6 +9,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/app_profile.dart';
 import '../../models/home_shortcut.dart';
 import '../../services/extension_service.dart';
+import '../../services/proxy_service.dart';
 import '../../services/home_service.dart';
 import '../../services/profile_service.dart';
 import '../browser/browser_screen.dart';
@@ -29,6 +30,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtl = TabController(length: 3, vsync: this);
   late final ExtensionService _ext = ExtensionService(widget.service.db);
+  late final ProxyService _proxy = ProxyService(widget.service.db);
   late final HomeService _home = HomeService(widget.service.db);
   HomeStats? _stats;
   final Set<String> _selected = {};
@@ -51,6 +53,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     _ext.addListener(_refreshStats);
     _home.load();
     _ext.load();
+    _proxy.load();
     _refreshStats();
   }
 
@@ -59,6 +62,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     _home.removeListener(_refreshStats);
     _ext.removeListener(_refreshStats);
     _ext.dispose();
+    _proxy.dispose();
     _s.removeListener(_refreshStats);
     _home.dispose();
     _tabCtl.dispose();
@@ -363,7 +367,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
                     children: [
                       _profilesView(items),
                       PopularTab(home: _home, profiles: () => _s.profiles, onToast: _toast),
-                      ExtensionsTab(service: _ext),
+                      ExtensionsTab(service: _ext, proxy: _proxy),
                     ],
                   ),
                 ),

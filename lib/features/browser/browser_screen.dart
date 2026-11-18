@@ -10,6 +10,7 @@ import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
 import '../../services/home_service.dart';
 import '../../services/extension_service.dart';
+import '../../services/proxy_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
@@ -70,12 +71,19 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   late final ExtensionService _ext = ExtensionService(widget.service.db);
   late final HomeService _home = HomeService(widget.service.db);
+  late final ProxyService _proxy = ProxyService(widget.service.db);
+  bool _switching = false; // WebViews are being released before another profile opens
+  int? _proxyId;
   List<String> _extScripts = const [];
   bool _adBlock = false;
 
   Future<void> _init() async {
     try {
-      _extScripts = await _ext.scriptsFor(_p.id);
+      // Fail closed: if this profile's proxy cannot be applied, the profile does not open.
+      await _proxy.applyFor(_p.id);
+      ProxyService.owner = _p.id;
+      _proxyId = (await _proxy.proxyFor(_p.id))?.id;
+      _extScripts = await _scriptsForProfile();
       _adBlock = await _ext.adBlockEnabledFor(_p.id);
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
       _tabs.desktopDefault = _p.desktopMode;
@@ -97,6 +105,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   @override
   void dispose() {
+    if (ProxyService.owner == _p.id) {
+      ProxyService.owner = null;
+      KMultiProfiles.clearProxy().then<void>((_) {}, onError: (Object e) {});
+    }
     _tabs.removeListener(_onTabsChanged);
     _tabs.dispose();
     _focus.dispose();
@@ -230,6 +242,21 @@ class _BrowserScreenState extends State<BrowserScreen> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  /// Extension scripts plus the WebRTC guard when this profile uses a proxy.
+  Future<List<String>> _scriptsForProfile() async =>
+      [...await _ext.scriptsFor(_p.id), ...await _proxy.guardScripts(_p.id)];
+
+  /// Destroys this browser's WebViews so the proxy can be changed for another profile.
+  Future<void> _releaseWebViews() async {
+    setState(() {
+      _switching = true;
+      _live.clear();
+      _ctl.clear();
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+
   void _applyAdBlock(KWebViewController c) {
     c.setAdBlock(_adBlock).then<void>((_) {}, onError: (Object e) {});
   }
@@ -243,12 +270,22 @@ class _BrowserScreenState extends State<BrowserScreen> {
   Future<void> _openExtensions() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ProfileExtensionsScreen(profile: _p, extensions: _ext),
+        builder: (_) => ProfileExtensionsScreen(profile: _p, extensions: _ext, proxy: _proxy),
       ),
     );
-    final scripts = await _ext.scriptsFor(_p.id);
+    try {
+      await _proxy.applyFor(_p.id);
+    } catch (e) {
+      _toast('Proxy could not be applied: $e');
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    final proxyId = (await _proxy.proxyFor(_p.id))?.id;
+    final scripts = await _scriptsForProfile();
     final adBlock = await _ext.adBlockEnabledFor(_p.id);
-    if (!mounted || (listEquals(scripts, _extScripts) && adBlock == _adBlock)) return;
+    final proxyChanged = proxyId != _proxyId;
+    if (!mounted || (!proxyChanged && listEquals(scripts, _extScripts) && adBlock == _adBlock)) return;
+    _proxyId = proxyId;
     _extScripts = scripts;
     _adBlock = adBlock;
     for (final c in _ctl.values) {
@@ -434,9 +471,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
                           ),
                           title: Text(p.displayName),
                           trailing: p.id == _p.id ? const Icon(Icons.check) : null,
-                          onTap: () {
+                          onTap: () async {
                             Navigator.pop(ctx);
                             if (p.id == _p.id) return;
+                            await _releaseWebViews();
+                            if (!mounted) return;
                             Navigator.of(context).pushReplacement(
                               MaterialPageRoute<void>(
                                 builder: (_) => BrowserScreen(profile: p, service: widget.service),
@@ -629,6 +668,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                       : 'Extensions',
                   _openExtensions,
                 ),
+                item(Icons.public, 'Check my IP', () => _tabs.addTab(url: 'https://api.ipify.org', desktop: false)),
                 item(Icons.settings_outlined, 'Settings', _openSettings),
                 item(Icons.science_outlined, 'Isolation test page', () => _activeCtl?.loadTestPage()),
                 item(Icons.cookie_outlined, 'Show cookies for this page', _showCookies),
@@ -665,7 +705,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   Widget _tabView(String id) {
     return KeyedSubtree(
       key: ValueKey(id),
-      child: _live.contains(id)
+      child: (!_switching && _live.contains(id))
           ? KProfileWebView(
               key: ValueKey('wv_$id'),
               profile: _p.engineProfileName,

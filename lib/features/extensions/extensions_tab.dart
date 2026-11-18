@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/user_extension.dart';
 import '../../services/extension_service.dart';
+import '../../services/proxy_service.dart';
+import '../proxy/proxies_screen.dart';
 import 'userscript.dart';
 
 Future<String> _fetch(String url) async {
@@ -169,8 +171,9 @@ class _InputDialogState extends State<_InputDialog> {
 
 /// The Extensions tab of the main Home: the only place extensions are added.
 class ExtensionsTab extends StatelessWidget {
-  const ExtensionsTab({super.key, required this.service});
+  const ExtensionsTab({super.key, required this.service, required this.proxy});
   final ExtensionService service;
+  final ProxyService proxy;
 
   Future<void> _update(BuildContext context, UserExtension e) async {
     try {
@@ -201,6 +204,61 @@ class ExtensionsTab extends StatelessWidget {
       ),
     );
     if (ok == true) await service.delete(e.id);
+  }
+
+  Widget _proxyCard(BuildContext context) {
+    return ListenableBuilder(
+      listenable: proxy,
+      builder: (context, _) {
+        final n = proxy.proxies.length;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Material(
+            color: context.panel,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => ProxiesScreen(proxy: proxy)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      backgroundColor: AppColors.purple,
+                      child: Icon(Icons.vpn_key_outlined, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Proxy  (changes the IP address)',
+                            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                          ),
+                          const Text(
+                            'Add proxy servers once here. Each profile picks one.',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            n == 0 ? 'No proxies yet. Tap to add.' : '$n ${n == 1 ? 'proxy' : 'proxies'}  |  tap to manage',
+                            style: TextStyle(fontSize: 11, color: context.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _builtIn(BuildContext context) {
@@ -257,9 +315,10 @@ class ExtensionsTab extends StatelessWidget {
         final list = service.extensions;
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-          itemCount: list.isEmpty ? 2 : list.length + 1,
+          itemCount: list.isEmpty ? 3 : list.length + 2,
           itemBuilder: (_, i) {
             if (i == 0) return _builtIn(context);
+            if (i == 1) return _proxyCard(context);
             if (list.isEmpty) {
               return const Padding(
                 padding: EdgeInsets.all(24),
@@ -270,7 +329,7 @@ class ExtensionsTab extends StatelessWidget {
                 ),
               );
             }
-            final e = list[i - 1];
+            final e = list[i - 2];
             final n = service.usage[e.id] ?? 0;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),

@@ -3,8 +3,12 @@ package com.kainuwa.kmultibrowser.profiles
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import androidx.webkit.ProfileStore
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -12,12 +16,14 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executor
 
 class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private val fileChooser = FileChooserBridge()
     private var activityBinding: ActivityPluginBinding? = null
     private var channel: MethodChannel? = null
     private var appContext: Context? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         appContext = binding.applicationContext
@@ -80,6 +86,39 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
                     val name = call.argument<String>("name") ?: error("name missing")
                     // Throws IllegalStateException if a WebView still uses the profile.
                     result.success(ProfileStore.getInstance().deleteProfile(name))
+                }
+                "setProxy" -> {
+                    if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                        result.error("unsupported", "This WebView cannot use a proxy", null)
+                        return
+                    }
+                    val executor = Executor { r -> mainHandler.post(r) }
+                    if (call.argument<Boolean>("clear") == true) {
+                        ProxyState.clear()
+                        ProxyController.getInstance().clearProxyOverride(executor, Runnable { result.success(null) })
+                        return
+                    }
+                    val scheme = call.argument<String>("scheme") ?: error("scheme missing")
+                    val host = call.argument<String>("host") ?: error("host missing")
+                    val port = call.argument<Int>("port") ?: error("port missing")
+                    if (scheme != "http" && scheme != "https" && scheme != "socks5") error("unsupported proxy type")
+                    // No direct fallback: if the proxy fails, pages fail instead of using the real IP.
+                    val config = ProxyConfig.Builder().addProxyRule("$scheme://$host:$port").build()
+                    ProxyState.set(
+                        scheme, host, port,
+                        call.argument<String>("username") ?: "",
+                        call.argument<String>("password") ?: ""
+                    )
+                    // Result is sent only when WebView confirms the new proxy is in use.
+                    ProxyController.getInstance().setProxyOverride(config, executor, Runnable { result.success(null) })
+                }
+                "encrypt" -> {
+                    val text = call.argument<String>("text") ?: error("text missing")
+                    result.success(KeystoreCrypto.encrypt(text))
+                }
+                "decrypt" -> {
+                    val text = call.argument<String>("text") ?: error("text missing")
+                    result.success(KeystoreCrypto.decrypt(text))
                 }
                 "share" -> {
                     val text = call.argument<String>("text") ?: error("text missing")

@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 8;
+  static const _version = 9;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -32,6 +32,7 @@ CREATE TABLE profiles (
         await _createV6(db);
         await _createV7(db);
         await _createV8(db);
+        await _createV9(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -49,8 +50,25 @@ CREATE TABLE profiles (
         if (oldVersion < 6) await _createV6(db);
         if (oldVersion < 7) await _createV7(db);
         if (oldVersion < 8) await _createV8(db);
+        if (oldVersion < 9) await _createV9(db);
       },
     );
+  }
+
+  /// Version 9: proxies added at the main Home (password stored encrypted).
+  /// The profile's choice lives in profile_settings, key 'proxy_id'.
+  static Future<void> _createV9(Database db) async {
+    await db.execute('''
+CREATE TABLE proxies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    scheme TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    password_enc TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+)''');
   }
 
   /// Version 8: Popular sites can be shown in the start page Shortcuts of profiles.

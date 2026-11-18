@@ -40,6 +40,33 @@ class KMultiProfiles {
 
   /// Opens the system Downloads app.
   static Future<void> openDownloads() => _channel.invokeMethod<void>('openDownloads');
+
+  /// Makes ALL WebViews of the app use this proxy (scheme: http, https or socks5).
+  /// Completes when WebView confirms the change. Throws if it cannot be applied.
+  static Future<void> setProxy({
+    required String scheme,
+    required String host,
+    required int port,
+    String username = '',
+    String password = '',
+  }) =>
+      _channel.invokeMethod<void>('setProxy', {
+        'scheme': scheme,
+        'host': host,
+        'port': port,
+        'username': username,
+        'password': password,
+      });
+
+  /// Removes the proxy: WebViews use the normal connection again.
+  static Future<void> clearProxy() => _channel.invokeMethod<void>('setProxy', {'clear': true});
+
+  /// Encrypts text with a key kept in the Android Keystore.
+  static Future<String> encrypt(String text) async =>
+      (await _channel.invokeMethod<String>('encrypt', {'text': text})) ?? '';
+
+  static Future<String> decrypt(String text) async =>
+      (await _channel.invokeMethod<String>('decrypt', {'text': text})) ?? '';
 }
 
 @immutable

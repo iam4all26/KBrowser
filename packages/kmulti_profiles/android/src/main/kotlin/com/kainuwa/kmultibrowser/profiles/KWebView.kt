@@ -18,6 +18,8 @@ import android.view.ViewGroup
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.util.Base64
+import android.webkit.HttpAuthHandler
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -35,7 +37,11 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.net.Authenticator
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.PasswordAuthentication
+import java.net.Proxy
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
@@ -61,6 +67,7 @@ class KWebView(
     private val scriptHandlers = mutableListOf<ScriptHandler>()
     @Volatile private var adBlock = false
     private val blockedCount = AtomicInteger(0)
+    private val proxyAuthAttempts = AtomicInteger(0)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val root: View = build(context)
 
@@ -115,6 +122,26 @@ class KWebView(
                     }
                 }
 
+                override fun onReceivedHttpAuthRequest(
+                    view: WebView,
+                    handler: HttpAuthHandler,
+                    host: String?,
+                    realm: String?
+                ) {
+                    // Login asked by the proxy server: answer with the proxy login (a few tries only).
+                    if (ProxyState.active && ProxyState.username.isNotEmpty() &&
+                        host != null && host.equals(ProxyState.host, ignoreCase = true)
+                    ) {
+                        if (proxyAuthAttempts.incrementAndGet() <= 3) {
+                            handler.proceed(ProxyState.username, ProxyState.password)
+                        } else {
+                            handler.cancel()
+                        }
+                        return
+                    }
+                    super.onReceivedHttpAuthRequest(view, handler, host, realm)
+                }
+
                 override fun shouldInterceptRequest(
                     view: WebView,
                     request: WebResourceRequest
@@ -131,6 +158,7 @@ class KWebView(
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                     blockedCount.set(0)
+                    proxyAuthAttempts.set(0)
                     notifyPage(view, url)
                 }
 
@@ -256,13 +284,17 @@ class KWebView(
             say("This kind of download is not supported yet")
             return
         }
+        if (ProxyState.active && ProxyState.scheme == "https") {
+            say("Downloads are not available through an HTTPS proxy yet")
+            return
+        }
         val cookie = profileCookies()?.getCookie(url)
         val referer = webView?.url
         say("Downloading...")
         thread(name = "kmulti-download") {
             var conn: HttpURLConnection? = null
             try {
-                conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                conn = openUrlConnection(url).apply {
                     connectTimeout = 20000
                     readTimeout = 30000
                     instanceFollowRedirects = true
@@ -289,6 +321,29 @@ class KWebView(
                 conn?.disconnect()
             }
         }
+    }
+
+    /** Opens the download connection through the profile's proxy when one is on. */
+    private fun openUrlConnection(url: String): HttpURLConnection {
+        if (!ProxyState.active) return URL(url).openConnection() as HttpURLConnection
+        val type = if (ProxyState.scheme == "socks5") Proxy.Type.SOCKS else Proxy.Type.HTTP
+        val proxy = Proxy(type, InetSocketAddress.createUnresolved(ProxyState.host, ProxyState.port))
+        val user = ProxyState.username
+        val pass = ProxyState.password
+        if (user.isNotEmpty()) {
+            Authenticator.setDefault(object : Authenticator() {
+                override fun getPasswordAuthentication(): PasswordAuthentication? =
+                    if (requestorType == Authenticator.RequestorType.PROXY) {
+                        PasswordAuthentication(user, pass.toCharArray())
+                    } else null
+            })
+        }
+        val conn = URL(url).openConnection(proxy) as HttpURLConnection
+        if (user.isNotEmpty() && type == Proxy.Type.HTTP) {
+            val token = Base64.encodeToString("$user:$pass".toByteArray(), Base64.NO_WRAP)
+            conn.setRequestProperty("Proxy-Authorization", "Basic $token")
+        }
+        return conn
     }
 
     private fun saveToDownloads(name: String, mime: String, input: InputStream): String {
