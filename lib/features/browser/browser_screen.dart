@@ -71,10 +71,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final ExtensionService _ext = ExtensionService(widget.service.db);
   late final HomeService _home = HomeService(widget.service.db);
   List<String> _extScripts = const [];
+  bool _adBlock = false;
 
   Future<void> _init() async {
     try {
       _extScripts = await _ext.scriptsFor(_p.id);
+      _adBlock = await _ext.adBlockEnabledFor(_p.id);
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
       _tabs.desktopDefault = _p.desktopMode;
       await _tabs.load();
@@ -228,6 +230,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  void _applyAdBlock(KWebViewController c) {
+    c.setAdBlock(_adBlock).then<void>((_) {}, onError: (Object e) {});
+  }
+
   void _applyExtensions(KWebViewController c) {
     c.setExtensions(_extScripts).then<void>((_) {}, onError: (Object e) {
       _toast('Extensions could not be applied: $e');
@@ -241,9 +247,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
       ),
     );
     final scripts = await _ext.scriptsFor(_p.id);
-    if (!mounted || listEquals(scripts, _extScripts)) return;
+    final adBlock = await _ext.adBlockEnabledFor(_p.id);
+    if (!mounted || (listEquals(scripts, _extScripts) && adBlock == _adBlock)) return;
     _extScripts = scripts;
+    _adBlock = adBlock;
     for (final c in _ctl.values) {
+      _applyAdBlock(c);
       _applyExtensions(c);
     }
     if (!_onStart) _activeCtl?.reload();
@@ -251,6 +260,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _attach(String tabId, KWebViewController c) {
     _ctl[tabId] = c;
+    _applyAdBlock(c);
     if (_extScripts.isNotEmpty) _applyExtensions(c);
     c.onNewWindow = (u) {
       _tabs.addTab(url: u, desktop: _p.desktopMode);
@@ -612,7 +622,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   }
                 }),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
-                item(Icons.extension_outlined, 'Extensions', _openExtensions),
+                item(
+                  Icons.extension_outlined,
+                  _adBlock && (c?.state.value.blocked ?? 0) > 0
+                      ? 'Extensions (${c?.state.value.blocked} blocked)'
+                      : 'Extensions',
+                  _openExtensions,
+                ),
                 item(Icons.settings_outlined, 'Settings', _openSettings),
                 item(Icons.science_outlined, 'Isolation test page', () => _activeCtl?.loadTestPage()),
                 item(Icons.cookie_outlined, 'Show cookies for this page', _showCookies),

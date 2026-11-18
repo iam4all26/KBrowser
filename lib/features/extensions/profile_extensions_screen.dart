@@ -16,6 +16,7 @@ class ProfileExtensionsScreen extends StatefulWidget {
 
 class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
   Set<int> _on = {};
+  bool _adBlockOn = false;
   bool _loaded = false;
 
   @override
@@ -27,12 +28,19 @@ class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
   Future<void> _load() async {
     await widget.extensions.load();
     final on = await widget.extensions.enabledFor(widget.profile.id);
+    final ad = await widget.extensions.adBlockEnabledFor(widget.profile.id);
     if (mounted) {
       setState(() {
         _on = on;
+        _adBlockOn = ad;
         _loaded = true;
       });
     }
+  }
+
+  Future<void> _toggleAdBlock(bool value) async {
+    await widget.extensions.setAdBlockFor(widget.profile.id, value);
+    if (mounted) setState(() => _adBlockOn = value);
   }
 
   Future<void> _toggle(UserExtension e, bool value) async {
@@ -62,11 +70,12 @@ class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
   @override
   Widget build(BuildContext context) {
     final list = widget.extensions.extensions;
+    final showAd = widget.extensions.adBlockAvailable;
     return Scaffold(
       appBar: AppBar(title: Text('Extensions: ${widget.profile.displayName}')),
       body: !_loaded
           ? const Center(child: CircularProgressIndicator())
-          : list.isEmpty
+          : (list.isEmpty && !showAd)
               ? const Center(
                   child: Padding(
                     padding: EdgeInsets.all(24),
@@ -80,6 +89,14 @@ class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
               : ListView(
                   padding: const EdgeInsets.only(bottom: 24),
                   children: [
+                    if (showAd)
+                      SwitchListTile(
+                        secondary: const CircleAvatar(child: Icon(Icons.shield_outlined)),
+                        title: const Text('Ad and tracker blocker'),
+                        subtitle: const Text('Built-in. Blocks ad and tracker requests and hides empty ad boxes.'),
+                        value: _adBlockOn,
+                        onChanged: _toggleAdBlock,
+                      ),
                     for (final e in list)
                       SwitchListTile(
                         secondary: const CircleAvatar(child: Icon(Icons.extension_outlined)),

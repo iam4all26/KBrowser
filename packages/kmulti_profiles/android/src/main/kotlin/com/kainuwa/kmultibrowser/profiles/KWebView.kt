@@ -19,6 +19,7 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
@@ -30,11 +31,13 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /**
@@ -56,6 +59,8 @@ class KWebView(
     private var mobileUa: String = ""
     private var desktop: Boolean = false
     private val scriptHandlers = mutableListOf<ScriptHandler>()
+    @Volatile private var adBlock = false
+    private val blockedCount = AtomicInteger(0)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val root: View = build(context)
 
@@ -110,7 +115,22 @@ class KWebView(
                     }
                 }
 
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): WebResourceResponse? {
+                    if (adBlock && !request.isForMainFrame && AdBlockList.isBlocked(request.url.host)) {
+                        blockedCount.incrementAndGet()
+                        return WebResourceResponse(
+                            "text/plain", "utf-8", 403, "Blocked",
+                            emptyMap(), ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+                    return super.shouldInterceptRequest(view, request)
+                }
+
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    blockedCount.set(0)
                     notifyPage(view, url)
                 }
 
@@ -337,7 +357,8 @@ class KWebView(
                 "title" to (view.title ?: ""),
                 "canGoBack" to view.canGoBack(),
                 "canGoForward" to view.canGoForward(),
-                "finished" to finished
+                "finished" to finished,
+                "blocked" to blockedCount.get()
             )
         )
     }
@@ -380,6 +401,10 @@ class KWebView(
                 result.success(null)
             }
             "clearFind" -> { wv.clearMatches(); result.success(null) }
+            "setAdBlock" -> {
+                adBlock = call.argument<Boolean>("enabled") ?: false
+                result.success(null)
+            }
             "setExtensions" -> {
                 val scripts = call.argument<List<String>>("scripts") ?: emptyList()
                 for (h in scriptHandlers) {

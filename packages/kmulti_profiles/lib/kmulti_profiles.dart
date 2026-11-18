@@ -50,6 +50,7 @@ class KPageState {
     this.canGoBack = false,
     this.canGoForward = false,
     this.finished = false,
+    this.blocked = 0,
   });
   final String url;
   final String title;
@@ -58,6 +59,9 @@ class KPageState {
 
   /// True for the event sent when a page finished loading.
   final bool finished;
+
+  /// Number of ad and tracker requests blocked on the current page.
+  final int blocked;
 }
 
 /// Find-in-page result. [active] is 1-based (0 when there is no match).
@@ -81,6 +85,7 @@ class KWebViewController {
             canGoBack: a['canGoBack'] == true,
             canGoForward: a['canGoForward'] == true,
             finished: a['finished'] == true,
+            blocked: (a['blocked'] as num?)?.toInt() ?? 0,
           );
         case 'onProgress':
           progress.value = ((call.arguments as num) / 100).clamp(0.0, 1.0).toDouble();
@@ -136,6 +141,10 @@ class KWebViewController {
 
   /// Sets the extension scripts that run on every page of this WebView
   /// (replaces the previous set; applies to pages loaded afterwards).
+  /// Turns the built-in ad and tracker request blocker on or off for this WebView.
+  Future<void> setAdBlock(bool enabled) =>
+      _channel.invokeMethod<void>('setAdBlock', {'enabled': enabled});
+
   Future<void> setExtensions(List<String> scripts) =>
       _channel.invokeMethod<void>('setExtensions', {'scripts': scripts});
 

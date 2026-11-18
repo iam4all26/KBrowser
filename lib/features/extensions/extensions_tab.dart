@@ -203,29 +203,74 @@ class ExtensionsTab extends StatelessWidget {
     if (ok == true) await service.delete(e.id);
   }
 
+  Widget _builtIn(BuildContext context) {
+    final n = service.adBlockUsage;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: context.panel,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: AppColors.gold,
+                child: Icon(Icons.shield_outlined, color: AppColors.darkBase),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Ad and tracker blocker  (built-in)',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    const Text(
+                      'Blocks ad and tracker requests and hides empty ad boxes.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      service.adBlockAvailable
+                          ? 'Available to profiles  |  on in $n ${n == 1 ? 'profile' : 'profiles'}'
+                          : 'Hidden from profiles',
+                      style: TextStyle(fontSize: 11, color: context.muted),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(value: service.adBlockAvailable, onChanged: service.setAdBlockAvailable),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: service,
       builder: (context, _) {
         final list = service.extensions;
-        if (list.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'No extensions yet. Tap Add extension to add one from a link or by pasting code. '
-                'Each profile can then switch it on from its own menu.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
-          itemCount: list.length,
+          itemCount: list.isEmpty ? 2 : list.length + 1,
           itemBuilder: (_, i) {
-            final e = list[i];
+            if (i == 0) return _builtIn(context);
+            if (list.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'No other extensions yet. Tap Add extension to add one from a link or by pasting code. '
+                  'Each profile can then switch it on from its own menu.',
+                  textAlign: TextAlign.center,
+                ),
+              );
+            }
+            final e = list[i - 1];
             final n = service.usage[e.id] ?? 0;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
