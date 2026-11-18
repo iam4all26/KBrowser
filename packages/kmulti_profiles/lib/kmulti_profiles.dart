@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -168,6 +169,9 @@ class KWebViewController {
 
   /// Sets the extension scripts that run on every page of this WebView
   /// (replaces the previous set; applies to pages loaded afterwards).
+  /// A small JPEG picture of the page as shown (null if it cannot be taken).
+  Future<Uint8List?> captureThumbnail() => _channel.invokeMethod<Uint8List>('captureThumbnail');
+
   /// Turns the built-in ad and tracker request blocker on or off for this WebView.
   Future<void> setAdBlock(bool enabled) =>
       _channel.invokeMethod<void>('setAdBlock', {'enabled': enabled});

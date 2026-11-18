@@ -12,6 +12,7 @@ import '../../services/home_service.dart';
 import '../../services/extension_service.dart';
 import '../../services/proxy_service.dart';
 import '../../services/tab_service.dart';
+import '../../services/thumbnail_cache.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
 import '../settings/settings_screen.dart';
@@ -370,9 +371,20 @@ class _BrowserScreenState extends State<BrowserScreen> {
     return u.isEmpty || u == kHomeUrl;
   }
 
-  Future<void> _newTab() {
+  /// Takes a small picture of the active page for the tab switcher.
+  Future<void> _captureThumb() async {
+    final id = _tabs.activeId;
+    if (id == null || _onStart) return;
+    try {
+      final bytes = await _ctl[id]?.captureThumbnail();
+      if (bytes != null && bytes.isNotEmpty) ThumbnailCache.put(id, bytes);
+    } catch (_) {}
+  }
+
+  Future<void> _newTab() async {
+    await _captureThumb();
     _startTab = 0;
-    return _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
+    await _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
   }
 
   void _openSettings() {
@@ -418,6 +430,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   Future<void> _openSwitcher() async {
     _focus.unfocus();
+    await _captureThumb();
+    if (!mounted) return;
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(builder: (_) => TabSwitcherScreen(tabs: _tabs, profile: _p)),
     );
@@ -720,7 +734,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       onTap: _openSwitcher,
       radius: 22,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Container(
           width: 26,
           height: 26,
@@ -786,6 +800,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 tooltip: 'Home',
                 icon: const Icon(Icons.home_outlined),
                 onPressed: _goHome,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(width: 38, height: 40),
               ),
               Expanded(child: TextField(
                 controller: _url,
@@ -803,9 +820,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     borderSide: BorderSide.none,
                   ),
                   prefixIcon: Icon(secure ? Icons.lock_outline : Icons.public, size: 18),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 34, minHeight: 34),
                   suffixIcon: _focus.hasFocus
                       ? IconButton(
                           tooltip: 'Clear',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
                           icon: const Icon(Icons.close, size: 18),
                           onPressed: () {
                             _url.clear();
@@ -814,16 +835,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         )
                       : IconButton(
                           tooltip: loading ? 'Stop' : 'Reload',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
                           icon: Icon(loading ? Icons.close : Icons.refresh, size: 20),
                           onPressed: () => loading ? c?.stop() : c?.reload(),
                         ),
                 ),
               )),
+              IconButton(
+                tooltip: 'New tab',
+                icon: const Icon(Icons.add),
+                onPressed: _newTab,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(width: 38, height: 40),
+              ),
               _tabCountButton(),
               IconButton(
                 tooltip: 'Menu',
                 icon: const Icon(Icons.more_vert),
                 onPressed: _openMenu,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(width: 36, height: 40),
               ),
               ]),
             ),

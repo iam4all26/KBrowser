@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -34,6 +35,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -456,6 +458,29 @@ class KWebView(
                 result.success(null)
             }
             "clearFind" -> { wv.clearMatches(); result.success(null) }
+            "captureThumbnail" -> {
+                val w = wv.width
+                val h = wv.height
+                if (w <= 0 || h <= 0) {
+                    result.success(null)
+                    return
+                }
+                try {
+                    val targetW = 360
+                    val scale = targetW.toFloat() / w
+                    val th = (h * scale).toInt().coerceAtLeast(1)
+                    val bmp = Bitmap.createBitmap(targetW, th, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    canvas.scale(scale, scale)
+                    wv.draw(canvas)
+                    val out = ByteArrayOutputStream()
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                    bmp.recycle()
+                    result.success(out.toByteArray())
+                } catch (e: Throwable) {
+                    result.success(null)
+                }
+            }
             "setAdBlock" -> {
                 adBlock = call.argument<Boolean>("enabled") ?: false
                 result.success(null)
