@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 6;
+  static const _version = 7;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -30,6 +30,7 @@ CREATE TABLE profiles (
         await _createV4(db);
         await _createV5(db);
         await _createV6(db);
+        await _createV7(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -45,8 +46,33 @@ CREATE TABLE profiles (
         }
         if (oldVersion < 5) await _createV5(db);
         if (oldVersion < 6) await _createV6(db);
+        if (oldVersion < 7) await _createV7(db);
       },
     );
+  }
+
+  /// Version 7: extensions (library added at the main Home) and per-profile switches.
+  static Future<void> _createV7(Database db) async {
+    await db.execute('''
+CREATE TABLE extensions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    matches TEXT NOT NULL DEFAULT '',
+    excludes TEXT NOT NULL DEFAULT '',
+    run_at TEXT NOT NULL DEFAULT 'document-idle',
+    code TEXT NOT NULL,
+    source_url TEXT,
+    created_at INTEGER NOT NULL
+)''');
+    await db.execute('''
+CREATE TABLE profile_extensions (
+    profile_id TEXT NOT NULL,
+    extension_id INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (profile_id, extension_id)
+)''');
   }
 
   /// Version 6: Popular sites on the main Home (app-wide, not per profile).

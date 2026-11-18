@@ -12,12 +12,14 @@ class HomeStats {
     required this.bookmarks,
     required this.history,
     required this.shortcuts,
+    this.extensions = 0,
   });
   final int profiles;
   final int tabs;
   final int bookmarks;
   final int history;
   final int shortcuts;
+  final int extensions;
 }
 
 /// App-wide Home data: the Popular sites and the stats shown above the profiles.
@@ -95,6 +97,7 @@ class HomeService extends ChangeNotifier {
       bookmarks: await _count('bookmarks'),
       history: await _count('history'),
       shortcuts: await _count('home_shortcuts'),
+      extensions: await _count('extensions'),
     );
   }
 }

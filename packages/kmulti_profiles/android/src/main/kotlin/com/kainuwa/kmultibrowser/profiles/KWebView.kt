@@ -23,6 +23,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.webkit.ProfileStore
+import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.BinaryMessenger
@@ -54,6 +55,7 @@ class KWebView(
     private var webView: WebView? = null
     private var mobileUa: String = ""
     private var desktop: Boolean = false
+    private val scriptHandlers = mutableListOf<ScriptHandler>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val root: View = build(context)
 
@@ -378,6 +380,28 @@ class KWebView(
                 result.success(null)
             }
             "clearFind" -> { wv.clearMatches(); result.success(null) }
+            "setExtensions" -> {
+                val scripts = call.argument<List<String>>("scripts") ?: emptyList()
+                for (h in scriptHandlers) {
+                    try { h.remove() } catch (e: Throwable) { }
+                }
+                scriptHandlers.clear()
+                if (scripts.isNotEmpty()) {
+                    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                        result.error("unsupported", "This WebView version cannot run extensions", null)
+                        return
+                    }
+                    try {
+                        for (s in scripts) {
+                            scriptHandlers.add(WebViewCompat.addDocumentStartJavaScript(wv, s, setOf("*")))
+                        }
+                    } catch (e: Throwable) {
+                        result.error("extension_error", e.message ?: e.toString(), null)
+                        return
+                    }
+                }
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }

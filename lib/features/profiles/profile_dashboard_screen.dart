@@ -1,3 +1,4 @@
+import '../extensions/extensions_tab.dart';
 import '../home/home_stats_strip.dart';
 import '../home/popular_tab.dart';
 import '../home/shortcut_dialog.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/app_profile.dart';
 import '../../models/home_shortcut.dart';
+import '../../services/extension_service.dart';
 import '../../services/home_service.dart';
 import '../../services/profile_service.dart';
 import '../browser/browser_screen.dart';
@@ -25,7 +27,8 @@ class ProfileDashboardScreen extends StatefulWidget {
 
 class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabCtl = TabController(length: 2, vsync: this);
+  late final TabController _tabCtl = TabController(length: 3, vsync: this);
+  late final ExtensionService _ext = ExtensionService(widget.service.db);
   late final HomeService _home = HomeService(widget.service.db);
   HomeStats? _stats;
   final Set<String> _selected = {};
@@ -45,13 +48,17 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     });
     _home.addListener(_refreshStats);
     _s.addListener(_refreshStats);
+    _ext.addListener(_refreshStats);
     _home.load();
+    _ext.load();
     _refreshStats();
   }
 
   @override
   void dispose() {
     _home.removeListener(_refreshStats);
+    _ext.removeListener(_refreshStats);
+    _ext.dispose();
     _s.removeListener(_refreshStats);
     _home.dispose();
     _tabCtl.dispose();
@@ -63,6 +70,8 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     final st = await _home.stats();
     if (mounted) setState(() => _stats = st);
   }
+
+  Future<void> _addExtension() => showAddExtensionFlow(context, _ext);
 
   Future<void> _addSite() async {
     final r = await showShortcutDialog(context);
@@ -297,7 +306,15 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
           },
           child: Scaffold(
             appBar: _appBar(),
-            floatingActionButton: _tabCtl.index == 1
+            floatingActionButton: _tabCtl.index == 2
+                ? FloatingActionButton.extended(
+                    onPressed: _addExtension,
+                    backgroundColor: AppColors.gold,
+                    foregroundColor: AppColors.darkBase,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add extension'),
+                  )
+                : _tabCtl.index == 1
                 ? FloatingActionButton.extended(
                     onPressed: _addSite,
                     backgroundColor: AppColors.gold,
@@ -334,6 +351,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
                   tabs: [
                     Tab(text: 'Profiles (${_s.profiles.length})'),
                     Tab(text: 'Popular (${_stats?.shortcuts ?? 0})'),
+                    Tab(text: 'Extensions (${_stats?.extensions ?? 0})'),
                   ],
                 ),
                 Expanded(
@@ -342,6 +360,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
                     children: [
                       _profilesView(items),
                       PopularTab(home: _home, onOpen: _openShortcut, onToast: _toast),
+                      ExtensionsTab(service: _ext),
                     ],
                   ),
                 ),

@@ -203,6 +203,7 @@ class ProfileService extends ChangeNotifier {
         await _db.delete('history', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('bookmarks', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('profile_settings', where: 'profile_id = ?', whereArgs: [id]);
+        await _db.delete('profile_extensions', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('profiles', where: 'id = ?', whereArgs: [id]);
         deleted++;
       } catch (e) {

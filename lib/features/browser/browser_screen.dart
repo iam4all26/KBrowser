@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kmulti_profiles/kmulti_profiles.dart';
@@ -8,6 +9,7 @@ import '../../services/profile_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
 import '../../services/home_service.dart';
+import '../../services/extension_service.dart';
 import '../../services/tab_service.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
@@ -15,6 +17,7 @@ import '../settings/settings_screen.dart';
 import 'bookmark_dialog.dart';
 import 'private_browser_screen.dart';
 import 'start_page.dart';
+import '../extensions/profile_extensions_screen.dart';
 import 'tab_switcher_screen.dart';
 import 'url_utils.dart';
 
@@ -64,8 +67,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _init();
   }
 
+  late final ExtensionService _ext = ExtensionService(widget.service.db);
+  List<String> _extScripts = const [];
+
   Future<void> _init() async {
     try {
+      _extScripts = await _ext.scriptsFor(_p.id);
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
       _tabs.desktopDefault = _p.desktopMode;
       await _tabs.load();
@@ -219,8 +226,30 @@ class _BrowserScreenState extends State<BrowserScreen> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  void _applyExtensions(KWebViewController c) {
+    c.setExtensions(_extScripts).then<void>((_) {}, onError: (Object e) {
+      _toast('Extensions could not be applied: $e');
+    });
+  }
+
+  Future<void> _openExtensions() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileExtensionsScreen(profile: _p, extensions: _ext),
+      ),
+    );
+    final scripts = await _ext.scriptsFor(_p.id);
+    if (!mounted || listEquals(scripts, _extScripts)) return;
+    _extScripts = scripts;
+    for (final c in _ctl.values) {
+      _applyExtensions(c);
+    }
+    if (!_onStart) _activeCtl?.reload();
+  }
+
   void _attach(String tabId, KWebViewController c) {
     _ctl[tabId] = c;
+    if (_extScripts.isNotEmpty) _applyExtensions(c);
     c.onNewWindow = (u) {
       _tabs.addTab(url: u, desktop: _p.desktopMode);
     };
@@ -583,6 +612,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   }
                 }),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
+                item(Icons.extension_outlined, 'Extensions', _openExtensions),
                 item(Icons.settings_outlined, 'Settings', _openSettings),
                 item(Icons.science_outlined, 'Isolation test page', () => _activeCtl?.loadTestPage()),
                 item(Icons.cookie_outlined, 'Show cookies for this page', _showCookies),

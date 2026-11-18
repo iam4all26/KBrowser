@@ -134,6 +134,11 @@ class KWebViewController {
     return _channel.invokeMethod<void>('clearFind');
   }
 
+  /// Sets the extension scripts that run on every page of this WebView
+  /// (replaces the previous set; applies to pages loaded afterwards).
+  Future<void> setExtensions(List<String> scripts) =>
+      _channel.invokeMethod<void>('setExtensions', {'scripts': scripts});
+
   Future<void> setDesktopMode(bool enabled, {bool reload = true}) =>
       _channel.invokeMethod<void>('setDesktopMode', {'enabled': enabled, 'reload': reload});
 }
