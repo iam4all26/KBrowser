@@ -76,8 +76,8 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
   Future<void> _addSite() async {
     final r = await showShortcutDialog(context);
     if (r == null) return;
-    final added = await _home.add(url: r.url, title: r.title, pinned: r.pinned, image: r.image);
-    _toast(added ? 'Added to Popular' : 'That site is already in Popular');
+    final added = await _home.add(url: r.url, title: r.title, pinned: r.pinned, image: r.image, allProfiles: r.allProfiles);
+    _toast(!added ? 'That site is already in Popular' : (r.allProfiles ? 'Added to Popular and all profiles' : 'Added to Popular'));
   }
 
   /// Asks which profile should open a Popular site.
@@ -359,7 +359,7 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
                     controller: _tabCtl,
                     children: [
                       _profilesView(items),
-                      PopularTab(home: _home, onOpen: _openShortcut, onToast: _toast),
+                      PopularTab(home: _home, profiles: () => _s.profiles, onToast: _toast),
                       ExtensionsTab(service: _ext),
                     ],
                   ),

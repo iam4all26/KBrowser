@@ -1,3 +1,4 @@
+import 'top_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:kmulti_profiles/kmulti_profiles.dart';
 
@@ -294,9 +295,8 @@ class _PrivateBrowserScreenState extends State<PrivateBrowserScreen> {
     final canForward = c?.state.value.canGoForward ?? false;
     final loading = (c?.progress.value ?? 1.0) < 1.0 && !_onHome;
     final onHome = _onHome;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
+    showTopMenu(
+      context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 7;
+  static const _version = 8;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -31,6 +31,7 @@ CREATE TABLE profiles (
         await _createV5(db);
         await _createV6(db);
         await _createV7(db);
+        await _createV8(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -47,8 +48,24 @@ CREATE TABLE profiles (
         if (oldVersion < 5) await _createV5(db);
         if (oldVersion < 6) await _createV6(db);
         if (oldVersion < 7) await _createV7(db);
+        if (oldVersion < 8) await _createV8(db);
       },
     );
+  }
+
+  /// Version 8: Popular sites can be shown in the start page Shortcuts of profiles.
+  /// profile_shortcuts: per-profile link (pinned overrides the Home pin, hidden removes
+  /// an "all profiles" site from one profile).
+  static Future<void> _createV8(Database db) async {
+    await db.execute('ALTER TABLE home_shortcuts ADD COLUMN all_profiles INTEGER NOT NULL DEFAULT 0');
+    await db.execute('''
+CREATE TABLE profile_shortcuts (
+    profile_id TEXT NOT NULL,
+    shortcut_id INTEGER NOT NULL,
+    pinned INTEGER,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile_id, shortcut_id)
+)''');
   }
 
   /// Version 7: extensions (library added at the main Home) and per-profile switches.

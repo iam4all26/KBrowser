@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/bookmark.dart';
 import '../../models/history_entry.dart';
+import '../../models/home_shortcut.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
+import '../../services/home_service.dart';
+import 'site_style.dart';
 import 'url_utils.dart';
 import 'bookmark_dialog.dart';
 
@@ -34,6 +37,8 @@ class StartPage extends StatefulWidget {
     required this.engine,
     required this.history,
     required this.bookmarks,
+    required this.home,
+    required this.profileId,
     required this.onOpen,
     required this.onOpenHistory,
     required this.onAddBookmark,
@@ -44,6 +49,8 @@ class StartPage extends StatefulWidget {
   final SearchEngine engine;
   final HistoryService history;
   final BookmarkService bookmarks;
+  final HomeService home;
+  final String profileId;
   final void Function(String url) onOpen;
   final VoidCallback onOpenHistory;
   final Future<void> Function(String url, String title, bool addToHome) onAddBookmark;
@@ -59,6 +66,7 @@ class _StartPageState extends State<StartPage> {
   List<Bookmark> _marks = [];
   List<HistoryEntry> _hist = [];
   List<_Site> _frequent = [];
+  List<HomeShortcut> _mine = [];
 
   @override
   void initState() {
@@ -76,6 +84,7 @@ class _StartPageState extends State<StartPage> {
     final q = _q.text;
     final marks = await widget.bookmarks.list(query: q);
     final hist = await widget.history.list(query: q, limit: 400);
+    final mine = await widget.home.forProfile(widget.profileId);
     final counts = <String, int>{};
     final urls = <String, String>{};
     for (final h in hist) {
@@ -88,6 +97,7 @@ class _StartPageState extends State<StartPage> {
     if (!mounted) return;
     setState(() {
       _marks = marks;
+      _mine = mine;
       _hist = hist;
       _frequent = [for (final h in hosts.take(8)) _Site(h.replaceFirst('www.', ''), urls[h]!)];
     });
@@ -147,13 +157,104 @@ class _StartPageState extends State<StartPage> {
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundColor: context.panel,
-                    foregroundColor: Theme.of(context).colorScheme.onSurface,
+                    backgroundColor: siteColor(s.url, s.name),
+                    foregroundColor: Colors.white,
                     child: Text(s.name.characters.first.toUpperCase(),
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
                   ),
                   const SizedBox(height: 6),
                   Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _shortcutMenu(HomeShortcut s) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(leading: const Icon(Icons.open_in_new), title: const Text('Open'), onTap: () => Navigator.pop(ctx, 'open')),
+            ListTile(
+              leading: Icon(s.pinned ? Icons.push_pin_outlined : Icons.push_pin),
+              title: Text(s.pinned ? 'Unpin in this profile' : 'Pin in this profile'),
+              onTap: () => Navigator.pop(ctx, 'pin'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.remove_circle_outline),
+              title: const Text('Remove from this profile'),
+              subtitle: const Text('It stays in Popular on the main Home'),
+              onTap: () => Navigator.pop(ctx, 'remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'open') {
+      widget.onOpen(s.url);
+    } else if (action == 'pin') {
+      await widget.home.setPinnedInProfile(widget.profileId, s.id, !s.pinned);
+      _load();
+    } else if (action == 'remove') {
+      await widget.home.removeFromProfile(widget.profileId, s.id);
+      _load();
+    }
+  }
+
+  Widget _homeTiles(List<HomeShortcut> list) {
+    return GridView.count(
+      crossAxisCount: 4,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      childAspectRatio: 0.95,
+      children: [
+        for (final s in list)
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => widget.onOpen(s.url),
+            onLongPress: () => _shortcutMenu(s),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      ClipOval(
+                        child: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: s.image != null
+                              ? Image.memory(s.image!, fit: BoxFit.cover)
+                              : Container(
+                                  color: siteColor(s.url, s.title),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    _label(s.title, s.url).characters.first.toUpperCase(),
+                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      if (s.pinned)
+                        const Positioned(top: -3, right: -5, child: Icon(Icons.push_pin, size: 14, color: AppColors.gold)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _label(s.title, s.url),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -238,10 +339,15 @@ class _StartPageState extends State<StartPage> {
           ),
         ];
       default:
+        final mineQ = _q.text.trim().toLowerCase();
+        final mine = filtering
+            ? _mine.where((s) => s.title.toLowerCase().contains(mineQ) || s.url.toLowerCase().contains(mineQ)).toList()
+            : _mine;
         final pop = filtering
             ? _popular.where((s) => s.name.toLowerCase().contains(_q.text.trim().toLowerCase())).toList()
             : _popular;
         return [
+          if (mine.isNotEmpty) ...[_sectionTitle('My shortcuts (long-press to pin or remove)'), _homeTiles(mine)],
           if (pop.isNotEmpty) ...[_sectionTitle('Popular'), _tiles(pop)],
           if (_frequent.isNotEmpty) ...[_sectionTitle('Frequently visited'), _tiles(_frequent)],
         ];

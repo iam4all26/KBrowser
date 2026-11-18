@@ -19,6 +19,7 @@ import 'private_browser_screen.dart';
 import 'start_page.dart';
 import '../extensions/profile_extensions_screen.dart';
 import 'tab_switcher_screen.dart';
+import 'top_menu.dart';
 import 'url_utils.dart';
 
 const String _testBase = 'https://kmulti.test/';
@@ -68,6 +69,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   late final ExtensionService _ext = ExtensionService(widget.service.db);
+  late final HomeService _home = HomeService(widget.service.db);
   List<String> _extScripts = const [];
 
   Future<void> _init() async {
@@ -482,10 +484,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final canForward = c?.state.value.canGoForward ?? false;
     final loading = (c?.progress.value ?? 1.0) < 1.0;
     final onStart = _onStart;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    showTopMenu(
+      context,
       builder: (ctx) {
         Widget item(IconData icon, String label, VoidCallback onTap, {Widget? trailing}) {
           return ListTile(
@@ -794,6 +794,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
                         onOpen: _open,
                         onOpenHistory: _openHistory,
                         onAddBookmark: _addBookmark,
+                        home: _home,
+                        profileId: _p.id,
                       ),
                     ),
                 ],

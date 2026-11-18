@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../models/app_profile.dart';
 import '../../models/home_shortcut.dart';
 import '../../services/home_service.dart';
-import '../profiles/profile_style.dart';
+import '../browser/site_style.dart';
+import 'assign_profiles_dialog.dart';
 import 'shortcut_dialog.dart';
 
 /// Popular sites of the main Home. Tapping one asks which profile should open it.
@@ -11,19 +13,22 @@ class PopularTab extends StatelessWidget {
   const PopularTab({
     super.key,
     required this.home,
-    required this.onOpen,
+    required this.profiles,
     required this.onToast,
   });
 
   final HomeService home;
-  final void Function(HomeShortcut shortcut) onOpen;
+  final List<AppProfile> Function() profiles;
   final void Function(String message) onToast;
 
   Future<void> _edit(BuildContext context, HomeShortcut s) async {
     final r = await showShortcutDialog(context, existing: s);
     if (r == null) return;
-    await home.update(s.id, url: r.url, title: r.title, pinned: r.pinned, image: r.image);
+    await home.update(s.id, url: r.url, title: r.title, pinned: r.pinned, image: r.image, allProfiles: r.allProfiles);
   }
+
+  Future<void> _assign(BuildContext context, HomeShortcut s) =>
+      showAssignProfilesDialog(context, home: home, shortcut: s, profiles: profiles());
 
   Future<void> _delete(BuildContext context, HomeShortcut s) async {
     final ok = await showDialog<bool>(
@@ -40,20 +45,15 @@ class PopularTab extends StatelessWidget {
     if (ok == true) await home.delete(s.id);
   }
 
-  Color _colorFor(String text) {
-    final i = text.codeUnits.fold<int>(0, (a, b) => a + b) % ProfileStyle.colors.length;
-    return ProfileStyle.colorFor(ProfileStyle.colors[i]);
-  }
-
   Widget _card(BuildContext context, HomeShortcut s) {
     final label = s.title.isEmpty ? s.url : s.title;
-    final color = _colorFor(s.url);
+    final color = siteColor(s.url, s.title);
     return Material(
       color: context.panel,
       borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => onOpen(s),
+        onTap: () => _assign(context, s),
         child: Stack(
           children: [
             Padding(
@@ -92,7 +92,7 @@ class PopularTab extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    Uri.tryParse(s.url)?.host ?? s.url,
+                    s.allProfiles ? 'All profiles' : (Uri.tryParse(s.url)?.host ?? s.url),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
@@ -111,8 +111,8 @@ class PopularTab extends StatelessWidget {
                 iconSize: 20,
                 onSelected: (v) {
                   switch (v) {
-                    case 'open':
-                      onOpen(s);
+                    case 'assign':
+                      _assign(context, s);
                     case 'pin':
                       home.setPinned(s.id, !s.pinned);
                     case 'edit':
@@ -122,7 +122,7 @@ class PopularTab extends StatelessWidget {
                   }
                 },
                 itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'open', child: Text('Open in a profile')),
+                  const PopupMenuItem(value: 'assign', child: Text('Add to profiles')),
                   PopupMenuItem(value: 'pin', child: Text(s.pinned ? 'Unpin' : 'Pin to top')),
                   const PopupMenuItem(value: 'edit', child: Text('Edit')),
                   const PopupMenuItem(value: 'delete', child: Text('Remove')),

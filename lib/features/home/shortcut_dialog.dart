@@ -6,11 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import '../../models/home_shortcut.dart';
 
 class ShortcutInput {
-  const ShortcutInput(this.url, this.title, this.pinned, this.image);
+  const ShortcutInput(this.url, this.title, this.pinned, this.image, this.allProfiles);
   final String url;
   final String title;
   final bool pinned;
   final Uint8List? image;
+  final bool allProfiles;
 }
 
 /// Add or edit a Popular site (pass [existing] to edit).
@@ -33,6 +34,7 @@ class _ShortcutDialogState extends State<_ShortcutDialog> {
   late final TextEditingController _title = TextEditingController(text: widget.existing?.title ?? '');
   late final TextEditingController _url = TextEditingController(text: widget.existing?.url ?? '');
   late bool _pinned = widget.existing?.pinned ?? false;
+  late bool _all = widget.existing?.allProfiles ?? false;
   late Uint8List? _image = widget.existing?.image;
   String? _error;
 
@@ -81,7 +83,7 @@ class _ShortcutDialogState extends State<_ShortcutDialog> {
     }
     var t = _title.text.trim();
     if (t.isEmpty) t = host;
-    Navigator.pop(context, ShortcutInput(u, t, _pinned, _image));
+    Navigator.pop(context, ShortcutInput(u, t, _pinned, _image, _all));
   }
 
   @override
@@ -141,6 +143,13 @@ class _ShortcutDialogState extends State<_ShortcutDialog> {
               title: const Text('Pin to the top'),
               value: _pinned,
               onChanged: (v) => setState(() => _pinned = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Add to all profiles'),
+              subtitle: const Text('Shown in the Shortcuts of every profile, also new ones. You can choose profiles later from the card menu.'),
+              value: _all,
+              onChanged: (v) => setState(() => _all = v),
             ),
           ],
         ),
