@@ -315,7 +315,7 @@ List<ParsedProxy> parseProxyList(String text, List<String> bad) {
     if (m != null) {
       final sc = m.group(1)!.toLowerCase();
       scheme = sc.startsWith('socks') ? 'socks5' : sc;
-      s = s.substring(m.end());
+      s = s.substring(m.end);
     }
     while (s.endsWith('/')) {
       s = s.substring(0, s.length - 1);
