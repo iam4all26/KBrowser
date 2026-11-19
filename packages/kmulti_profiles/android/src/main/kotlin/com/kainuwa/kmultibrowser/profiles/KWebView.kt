@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -58,7 +59,8 @@ class KWebView(
     viewId: Int,
     messenger: BinaryMessenger,
     private val profileName: String,
-    private val fileChooser: FileChooserBridge
+    private val fileChooser: FileChooserBridge,
+    private val permissions: PermissionBridge
 ) : PlatformView, MethodChannel.MethodCallHandler {
 
     private val appContext: Context = context.applicationContext
@@ -292,6 +294,24 @@ class KWebView(
         }
         val cookie = profileCookies()?.getCookie(url)
         val referer = webView?.url
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // Android 9 and below need the storage permission to save into the public Downloads folder.
+            permissions.request(listOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+                runDownload(url, userAgent, contentDisposition, mimeType, cookie, referer)
+            }
+        } else {
+            runDownload(url, userAgent, contentDisposition, mimeType, cookie, referer)
+        }
+    }
+
+    private fun runDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        mimeType: String?,
+        cookie: String?,
+        referer: String?
+    ) {
         say("Downloading...")
         thread(name = "kmulti-download") {
             var conn: HttpURLConnection? = null
@@ -316,7 +336,26 @@ class KWebView(
                 else "application/octet-stream"
                 val name = URLUtil.guessFileName(url, cd, mime)
                 val saved = conn.inputStream.use { saveToDownloads(name, mime, it) }
-                say("Saved to Downloads: $saved")
+                say(
+                    if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
+                    else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
+                )
+                mainHandler.post {
+                    try {
+                        channel.invokeMethod(
+                            "onDownloadDone",
+                            mapOf(
+                                "name" to saved.name,
+                                "location" to saved.location,
+                                "isUri" to saved.isUri,
+                                "mime" to mime,
+                                "size" to saved.size,
+                                "sourceUrl" to url
+                            )
+                        )
+                    } catch (e: Throwable) {
+                    }
+                }
             } catch (e: Throwable) {
                 say("Download failed: ${e.message}")
             } finally {
@@ -348,7 +387,15 @@ class KWebView(
         return conn
     }
 
-    private fun saveToDownloads(name: String, mime: String, input: InputStream): String {
+    private class Saved(
+        val name: String,
+        val location: String,
+        val isUri: Boolean,
+        val publicFolder: Boolean,
+        val size: Long
+    )
+
+    private fun saveToDownloads(name: String, mime: String, input: InputStream): Saved {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = appContext.contentResolver
             val values = ContentValues().apply {
@@ -359,9 +406,10 @@ class KWebView(
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw IOException("Could not create the file")
+            var size = 0L
             try {
                 val out = resolver.openOutputStream(uri) ?: throw IOException("Could not open the file")
-                out.use { input.copyTo(it) }
+                size = out.use { input.copyTo(it) }
                 val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
                 resolver.update(uri, done, null, null)
             } catch (e: Throwable) {
@@ -374,12 +422,14 @@ class KWebView(
             val finalName = resolver.query(
                 uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null
             )?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-            return finalName ?: name
+            return Saved(finalName ?: name, uri.toString(), true, true, size)
         }
-        // Android 9 and below: public Downloads needs the storage permission, so
-        // fall back to the app's own downloads folder if it is refused.
+        // Android 9 and below: the public Downloads folder needs the storage permission.
+        // If it was refused, fall back to the app's own folder (and say so).
         var dir: File = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        var publicFolder = true
         if (!(dir.exists() || dir.mkdirs()) || !dir.canWrite()) {
+            publicFolder = false
             dir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: appContext.filesDir
             dir.mkdirs()
         }
@@ -392,8 +442,14 @@ class KWebView(
             target = File(dir, "$base ($i)$ext")
             i++
         }
-        target.outputStream().use { input.copyTo(it) }
-        return target.name
+        val size = target.outputStream().use { input.copyTo(it) }
+        if (publicFolder) {
+            try {
+                MediaScannerConnection.scanFile(appContext, arrayOf(target.absolutePath), arrayOf(mime), null)
+            } catch (_: Throwable) {
+            }
+        }
+        return Saved(target.name, target.absolutePath, false, publicFolder, size)
     }
 
     private fun applyDesktopViewport(view: WebView) {

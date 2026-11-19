@@ -1,6 +1,7 @@
 package com.kainuwa.kmultibrowser.profiles
 
 import android.app.DownloadManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -15,11 +16,14 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
+import androidx.core.content.FileProvider
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import java.util.concurrent.Executor
 
 class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     private val fileChooser = FileChooserBridge()
+    private val permissions = PermissionBridge()
     private var activityBinding: ActivityPluginBinding? = null
     private var channel: MethodChannel? = null
     private var appContext: Context? = null
@@ -32,7 +36,7 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
         }
         binding.platformViewRegistry.registerViewFactory(
             "kmulti/webview",
-            KWebViewFactory(binding.binaryMessenger, fileChooser)
+            KWebViewFactory(binding.binaryMessenger, fileChooser, permissions)
         )
     }
 
@@ -44,9 +48,12 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activityBinding?.removeActivityResultListener(fileChooser)
+        activityBinding?.removeRequestPermissionsResultListener(permissions)
         activityBinding = binding
         fileChooser.activity = binding.activity
+        permissions.activity = binding.activity
         binding.addActivityResultListener(fileChooser)
+        binding.addRequestPermissionsResultListener(permissions)
     }
 
     override fun onDetachedFromActivityForConfigChanges() = onDetachedFromActivity()
@@ -56,8 +63,10 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
 
     override fun onDetachedFromActivity() {
         activityBinding?.removeActivityResultListener(fileChooser)
+        activityBinding?.removeRequestPermissionsResultListener(permissions)
         activityBinding = null
         fileChooser.activity = null
+        permissions.activity = null
     }
 
     private fun supported(): Boolean =
@@ -151,6 +160,33 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
                         }
                     }
                     if (!opened) error("No app can show Downloads")
+                    result.success(null)
+                }
+                "openFile", "shareFile" -> {
+                    val ctx = appContext ?: error("no context")
+                    val loc = call.argument<String>("location") ?: error("location missing")
+                    val isUri = call.argument<Boolean>("isUri") ?: false
+                    val mime = call.argument<String>("mime")?.takeIf { it.isNotEmpty() } ?: "*/*"
+                    val uri = if (isUri) Uri.parse(loc)
+                    else FileProvider.getUriForFile(ctx, "${ctx.packageName}.kmultifileprovider", File(loc))
+                    if (call.method == "openFile") {
+                        val view = Intent(Intent.ACTION_VIEW)
+                            .setDataAndType(uri, mime)
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try {
+                            ctx.startActivity(view)
+                        } catch (e: Exception) {
+                            error("No app can open this file")
+                        }
+                    } else {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = mime
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            clipData = ClipData.newRawUri("", uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
                     result.success(null)
                 }
                 "cookies" -> {

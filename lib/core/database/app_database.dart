@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 9;
+  static const _version = 10;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -33,6 +33,7 @@ CREATE TABLE profiles (
         await _createV7(db);
         await _createV8(db);
         await _createV9(db);
+        await _createV10(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -51,8 +52,26 @@ CREATE TABLE profiles (
         if (oldVersion < 7) await _createV7(db);
         if (oldVersion < 8) await _createV8(db);
         if (oldVersion < 9) await _createV9(db);
+        if (oldVersion < 10) await _createV10(db);
       },
     );
+  }
+
+  /// Version 10: download records, per profile.
+  static Future<void> _createV10(Database db) async {
+    await db.execute('''
+CREATE TABLE downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    is_uri INTEGER NOT NULL DEFAULT 0,
+    mime TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    source_url TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+)''');
+    await db.execute('CREATE INDEX idx_downloads_profile ON downloads (profile_id, created_at)');
   }
 
   /// Version 9: proxies added at the main Home (password stored encrypted).

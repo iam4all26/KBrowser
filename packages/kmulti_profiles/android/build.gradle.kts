@@ -54,4 +54,5 @@ kotlin {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
+    implementation("androidx.core:core:1.15.0")
 }

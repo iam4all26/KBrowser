@@ -42,6 +42,14 @@ class KMultiProfiles {
   /// Opens the system Downloads app.
   static Future<void> openDownloads() => _channel.invokeMethod<void>('openDownloads');
 
+  /// Opens a downloaded file with another app. [location] is a content address
+  /// (when [isUri] is true) or a file path.
+  static Future<void> openFile(String location, bool isUri, String mime) =>
+      _channel.invokeMethod<void>('openFile', {'location': location, 'isUri': isUri, 'mime': mime});
+
+  static Future<void> shareFile(String location, bool isUri, String mime) =>
+      _channel.invokeMethod<void>('shareFile', {'location': location, 'isUri': isUri, 'mime': mime});
+
   /// Makes ALL WebViews of the app use this proxy (scheme: http, https or socks5).
   /// Completes when WebView confirms the change. Throws if it cannot be applied.
   static Future<void> setProxy({
@@ -124,6 +132,8 @@ class KWebViewController {
           final total = (f['total'] as num?)?.toInt() ?? 0;
           final active = (f['active'] as num?)?.toInt() ?? 0;
           find.value = KFindState(active: total == 0 ? 0 : active + 1, total: total);
+        case 'onDownloadDone':
+          onDownloadDone?.call(Map<String, dynamic>.from(call.arguments as Map));
         case 'onDownload':
           final a = Map<String, dynamic>.from(call.arguments as Map);
           onDownloadMessage?.call((a['message'] as String?) ?? '');
@@ -146,6 +156,9 @@ class KWebViewController {
 
   /// Called with a short message when a download starts or cannot start.
   void Function(String message)? onDownloadMessage;
+
+  /// Called when a download is saved: name, location, isUri, mime, size, sourceUrl.
+  void Function(Map<String, dynamic> info)? onDownloadDone;
 
   Future<void> loadUrl(String url) =>
       _channel.invokeMethod<void>('loadUrl', {'url': url});

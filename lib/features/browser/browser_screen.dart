@@ -9,6 +9,7 @@ import '../../services/profile_service.dart';
 import '../../services/bookmark_service.dart';
 import '../../services/history_service.dart';
 import '../../services/home_service.dart';
+import '../../services/download_service.dart';
 import '../../services/extension_service.dart';
 import '../../services/proxy_service.dart';
 import '../../services/tab_service.dart';
@@ -19,6 +20,7 @@ import '../settings/settings_screen.dart';
 import 'bookmark_dialog.dart';
 import 'private_browser_screen.dart';
 import 'start_page.dart';
+import '../downloads/downloads_screen.dart';
 import '../extensions/profile_extensions_screen.dart';
 import 'tab_switcher_screen.dart';
 import 'top_menu.dart';
@@ -73,6 +75,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final ExtensionService _ext = ExtensionService(widget.service.db);
   late final HomeService _home = HomeService(widget.service.db);
   late final ProxyService _proxy = ProxyService(widget.service.db);
+  late final DownloadService _downloads = DownloadService(widget.service.db);
   bool _switching = false; // WebViews are being released before another profile opens
   int? _proxyId;
   List<String> _extScripts = const [];
@@ -304,6 +307,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
       _tabs.addTab(url: u, desktop: _p.desktopMode);
     };
     c.onDownloadMessage = _toast;
+    c.onDownloadDone = (info) {
+      _downloads.add(_p.id, info);
+    };
     c.state.addListener(() {
       if (!mounted) return;
       final s = c.state.value;
@@ -667,13 +673,15 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   }),
                 ],
                 item(Icons.history, 'History', _openHistory),
-                item(Icons.download_outlined, 'Downloads', () async {
-                  try {
-                    await KMultiProfiles.openDownloads();
-                  } catch (e) {
-                    _toast('Could not open Downloads: $e');
-                  }
-                }),
+                item(
+                  Icons.download_outlined,
+                  'Downloads',
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => DownloadsScreen(profile: _p, downloads: _downloads),
+                    ),
+                  ),
+                ),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
                 item(
                   Icons.extension_outlined,
