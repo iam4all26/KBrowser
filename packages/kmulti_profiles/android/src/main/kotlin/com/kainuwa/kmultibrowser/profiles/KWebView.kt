@@ -29,6 +29,7 @@ import android.webkit.WebViewClient
 import android.widget.TextView
 import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.BinaryMessenger
@@ -119,7 +120,19 @@ class KWebView(
                 setSupportMultipleWindows(true)
                 javaScriptCanOpenWindowsAutomatically = true
             }
-            mobileUa = wv.settings.userAgentString
+            // Batch 23: Google sign-in. Google rejects embedded WebViews ("disallowed_useragent")
+            // by looking for "; wv)" and "Version/4.0" in the User-Agent and for the
+            // X-Requested-With header. Present a normal Chrome-style mobile UA instead.
+            mobileUa = chromeStyleUa(wv.settings.userAgentString)
+            wv.settings.userAgentString = mobileUa
+            try {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                    WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
+                }
+            } catch (e: Throwable) { }
+            // "Sign in with Google" buttons and accounts.google.com need third-party cookies.
+            // The cookie manager is the profile's own, so nothing is shared between profiles.
+            try { profileCookies()?.setAcceptThirdPartyCookies(wv, true) } catch (e: Throwable) { }
             wv.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(
                     view: WebView,
@@ -515,6 +528,9 @@ class KWebView(
         if (!desktop) return
         view.evaluateJavascript(DESKTOP_JS, null)
     }
+
+    private fun chromeStyleUa(ua: String): String =
+        ua.replace("; wv)", ")").replace("Version/4.0 ", "")
 
     private fun desktopUa(ua: String): String =
         ua.replace(Regex("\\(Linux; Android[^)]*\\)"), "(X11; Linux x86_64)")
