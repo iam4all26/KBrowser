@@ -218,10 +218,13 @@ class _ProfileDashboardScreenState extends State<ProfileDashboardScreen>
     try {
       final r = await _s.deleteProfiles(targets.map((e) => e.id).toList());
       _selected.clear();
-      if (r.failed.isEmpty) {
-        _toast(r.deleted == 1 ? 'Profile deleted' : '${r.deleted} profiles deleted');
+      if (r.failed.isNotEmpty) {
+        _toast('${r.deleted} deleted, ${r.failed.length} failed: ${r.failed.values.first}');
+      } else if (r.pending.isNotEmpty) {
+        _toast('${r.deleted} deleted. For ${r.pending.length} the browser engine still had the data open '
+            '(${r.pending.values.first}); it will be erased the next time the app starts.');
       } else {
-        _toast('${r.deleted} deleted, ${r.failed.length} could not be deleted. They stay in the list.');
+        _toast(r.deleted == 1 ? 'Profile deleted' : '${r.deleted} profiles deleted');
       }
     } finally {
       if (mounted) setState(() => _busy = false);

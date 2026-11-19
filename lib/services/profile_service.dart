@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:kmulti_profiles/kmulti_profiles.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -13,9 +14,12 @@ class CreateResult {
 }
 
 class DeleteResult {
-  const DeleteResult(this.deleted, this.failed);
+  const DeleteResult(this.deleted, this.failed, [this.pending = const {}]);
   final int deleted;
-  final Map<String, String> failed; // id -> reason
+  final Map<String, String> failed; // id -> reason (the profile stays in the list)
+  /// Removed from the list, but the browser engine refused to erase its data
+  /// (a WebView was still using it). The data is erased at the next app start.
+  final Map<String, String> pending; // id -> engine reason
 }
 
 /// Owns profile metadata (SQLite) and keeps it in step with the engine
@@ -43,6 +47,7 @@ class ProfileService extends ChangeNotifier {
     engineInfo = (info['webViewVersion'] ?? 'unknown').toString();
     if (supported) {
       await PrivateSession.cleanupLeftovers();
+      await _wipePending();
       await _reconcile();
     }
     await _load();
@@ -191,14 +196,70 @@ class ProfileService extends ChangeNotifier {
     await _load();
   }
 
-  /// The engine profile is deleted first; the row is removed only after that
-  /// succeeds. Callers must make sure no WebView for the profile is alive.
+  static String _short(Object e) => e is PlatformException ? (e.message ?? e.code) : e.toString();
+
+  static const String _pendingKey = 'pending_wipe';
+
+  Future<List<String>> _readPending() async {
+    final r = await _db.query('app_settings', where: 'key = ?', whereArgs: [_pendingKey], limit: 1);
+    if (r.isEmpty) return [];
+    return ((r.first['value'] as String?) ?? '').split(',').where((s) => s.isNotEmpty).toList();
+  }
+
+  Future<void> _writePending(List<String> names) async {
+    await _db.insert(
+      'app_settings',
+      {'key': _pendingKey, 'value': names.join(',')},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> _addPending(String name) async {
+    final list = await _readPending();
+    if (!list.contains(name)) await _writePending([...list, name]);
+  }
+
+  /// At app start no WebView is alive, so engine profiles that could not be erased
+  /// earlier can be erased now (before they could be re-adopted as profiles).
+  Future<void> _wipePending() async {
+    final list = await _readPending();
+    if (list.isEmpty) return;
+    final left = <String>[];
+    for (final name in list) {
+      try {
+        await KMultiProfiles.deleteProfile(name);
+      } catch (_) {
+        left.add(name);
+      }
+    }
+    await _writePending(left);
+  }
+
+  /// Deletes profiles. The engine can refuse while a WebView is still being closed,
+  /// so it is tried several times. If it still refuses, the profile is removed from
+  /// the list and its data is erased at the next app start (see [DeleteResult.pending]).
   Future<DeleteResult> deleteProfiles(List<String> ids) async {
     var deleted = 0;
     final failed = <String, String>{};
+    final pending = <String, String>{};
     for (final id in ids) {
+      var engineOk = false;
+      String engineError = 'unknown';
+      for (final wait in const [0, 400, 1000, 2500]) {
+        if (wait > 0) await Future<void>.delayed(Duration(milliseconds: wait));
+        try {
+          await KMultiProfiles.deleteProfile(id);
+          engineOk = true;
+          break;
+        } catch (e) {
+          engineError = _short(e);
+        }
+      }
       try {
-        await KMultiProfiles.deleteProfile(id);
+        if (!engineOk) {
+          await _addPending(id);
+          pending[id] = engineError;
+        }
         await _db.delete('tabs', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('history', where: 'profile_id = ?', whereArgs: [id]);
         await _db.delete('bookmarks', where: 'profile_id = ?', whereArgs: [id]);
@@ -208,10 +269,11 @@ class ProfileService extends ChangeNotifier {
         await _db.delete('profiles', where: 'id = ?', whereArgs: [id]);
         deleted++;
       } catch (e) {
-        failed[id] = e.toString();
+        pending.remove(id);
+        failed[id] = _short(e);
       }
     }
     await _load();
-    return DeleteResult(deleted, failed);
+    return DeleteResult(deleted, failed, pending);
   }
 }
