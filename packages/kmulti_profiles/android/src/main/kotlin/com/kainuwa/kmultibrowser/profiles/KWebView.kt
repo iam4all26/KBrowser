@@ -314,53 +314,78 @@ class KWebView(
     ) {
         say("Downloading...")
         thread(name = "kmulti-download") {
-            var conn: HttpURLConnection? = null
-            try {
-                conn = openUrlConnection(url).apply {
-                    connectTimeout = 20000
-                    readTimeout = 30000
-                    instanceFollowRedirects = true
-                    if (!cookie.isNullOrEmpty()) setRequestProperty("Cookie", cookie)
-                    if (!userAgent.isNullOrEmpty()) setRequestProperty("User-Agent", userAgent)
-                    if (!referer.isNullOrEmpty()) setRequestProperty("Referer", referer)
-                }
-                val code = conn.responseCode
-                if (code !in 200..299) {
-                    say("Download failed: HTTP $code")
-                    return@thread
-                }
-                val cd = conn.getHeaderField("Content-Disposition") ?: contentDisposition
-                val headerMime = conn.contentType?.substringBefore(';')?.trim()
-                val mime = if (!headerMime.isNullOrEmpty()) headerMime
-                else if (!mimeType.isNullOrEmpty()) mimeType
-                else "application/octet-stream"
-                val name = URLUtil.guessFileName(url, cd, mime)
-                val saved = conn.inputStream.use { saveToDownloads(name, mime, it) }
-                say(
-                    if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
-                    else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
-                )
-                mainHandler.post {
-                    try {
-                        channel.invokeMethod(
-                            "onDownloadDone",
-                            mapOf(
-                                "name" to saved.name,
-                                "location" to saved.location,
-                                "isUri" to saved.isUri,
-                                "mime" to mime,
-                                "size" to saved.size,
-                                "sourceUrl" to url
-                            )
-                        )
-                    } catch (e: Throwable) {
+            // Older Android versions (for example Android 8) can fail with "unexpected end of
+            // stream" when a server or a mobile network closes a connection without a reply.
+            // So: no connection reuse, no compression, and up to 3 tries on fresh connections.
+            val attempts = 3
+            var lastError: Throwable? = null
+            for (attempt in 1..attempts) {
+                var conn: HttpURLConnection? = null
+                try {
+                    conn = openUrlConnection(url).apply {
+                        connectTimeout = 20000
+                        readTimeout = 30000
+                        instanceFollowRedirects = true
+                        useCaches = false
+                        setRequestProperty("Connection", "close")
+                        setRequestProperty("Accept-Encoding", "identity")
+                        setRequestProperty("Accept", "*/*")
+                        if (!cookie.isNullOrEmpty()) setRequestProperty("Cookie", cookie)
+                        if (!userAgent.isNullOrEmpty()) setRequestProperty("User-Agent", userAgent)
+                        // The last try leaves the Referer out (some servers drop such requests).
+                        if (attempt < attempts && !referer.isNullOrEmpty()) setRequestProperty("Referer", referer)
                     }
+                    val code = conn.responseCode
+                    if (code !in 200..299) {
+                        say("Download failed: HTTP $code")
+                        return@thread
+                    }
+                    val cd = conn.getHeaderField("Content-Disposition") ?: contentDisposition
+                    val headerMime = conn.contentType?.substringBefore(';')?.trim()
+                    val mime = if (!headerMime.isNullOrEmpty()) headerMime
+                    else if (!mimeType.isNullOrEmpty()) mimeType
+                    else "application/octet-stream"
+                    val name = URLUtil.guessFileName(url, cd, mime)
+                    val saved = conn.inputStream.use { saveToDownloads(name, mime, it) }
+                    say(
+                        if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
+                        else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
+                    )
+                    mainHandler.post {
+                        try {
+                            channel.invokeMethod(
+                                "onDownloadDone",
+                                mapOf(
+                                    "name" to saved.name,
+                                    "location" to saved.location,
+                                    "isUri" to saved.isUri,
+                                    "mime" to mime,
+                                    "size" to saved.size,
+                                    "sourceUrl" to url
+                                )
+                            )
+                        } catch (e: Throwable) {
+                        }
+                    }
+                    return@thread
+                } catch (e: IOException) {
+                    lastError = e
+                    if (attempt < attempts) {
+                        try {
+                            Thread.sleep(700L * attempt)
+                        } catch (_: InterruptedException) {
+                        }
+                    }
+                } catch (e: Throwable) {
+                    lastError = e
+                    break
+                } finally {
+                    conn?.disconnect()
                 }
-            } catch (e: Throwable) {
-                say("Download failed: ${e.message}")
-            } finally {
-                conn?.disconnect()
             }
+            val host = try { URL(url).host } catch (_: Throwable) { "?" }
+            val via = if (ProxyState.active) "proxy on" else "no proxy"
+            say("Download failed ($host, $via, Android ${Build.VERSION.RELEASE}): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
         }
     }
 
@@ -442,7 +467,16 @@ class KWebView(
             target = File(dir, "$base ($i)$ext")
             i++
         }
-        val size = target.outputStream().use { input.copyTo(it) }
+        val size = try {
+            target.outputStream().use { input.copyTo(it) }
+        } catch (e: Throwable) {
+            // Do not leave a half-written file behind (a retry would create "name (1).pdf").
+            try {
+                target.delete()
+            } catch (_: Throwable) {
+            }
+            throw e
+        }
         if (publicFolder) {
             try {
                 MediaScannerConnection.scanFile(appContext, arrayOf(target.absolutePath), arrayOf(mime), null)
