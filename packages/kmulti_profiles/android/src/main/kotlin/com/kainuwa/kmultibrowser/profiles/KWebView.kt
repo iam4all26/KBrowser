@@ -46,7 +46,13 @@ import java.net.InetSocketAddress
 import java.net.PasswordAuthentication
 import java.net.Proxy
 import java.net.URL
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import okhttp3.ConnectionPool
+import okhttp3.Credentials
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
 import kotlin.concurrent.thread
 
 /**
@@ -314,60 +320,61 @@ class KWebView(
     ) {
         say("Downloading...")
         thread(name = "kmulti-download") {
-            // Older Android versions (for example Android 8) can fail with "unexpected end of
-            // stream" when a server or a mobile network closes a connection without a reply.
-            // So: no connection reuse, no compression, and up to 3 tries on fresh connections.
+            // OkHttp is used instead of HttpURLConnection: the built-in one on older Android
+            // versions (for example Android 8) breaks on authenticated HTTPS proxies and on
+            // connections that a server or mobile network closes early. Up to 3 tries, each on
+            // a fresh connection.
             val attempts = 3
             var lastError: Throwable? = null
+            val client = buildDownloadClient()
             for (attempt in 1..attempts) {
-                var conn: HttpURLConnection? = null
                 try {
-                    conn = openUrlConnection(url).apply {
-                        connectTimeout = 20000
-                        readTimeout = 30000
-                        instanceFollowRedirects = true
-                        useCaches = false
-                        setRequestProperty("Connection", "close")
-                        setRequestProperty("Accept-Encoding", "identity")
-                        setRequestProperty("Accept", "*/*")
-                        if (!cookie.isNullOrEmpty()) setRequestProperty("Cookie", cookie)
-                        if (!userAgent.isNullOrEmpty()) setRequestProperty("User-Agent", userAgent)
-                        // The last try leaves the Referer out (some servers drop such requests).
-                        if (attempt < attempts && !referer.isNullOrEmpty()) setRequestProperty("Referer", referer)
-                    }
-                    val code = conn.responseCode
-                    if (code !in 200..299) {
-                        say("Download failed: HTTP $code")
+                    val req = Request.Builder().url(url)
+                        .header("Accept", "*/*")
+                        .header("Accept-Encoding", "identity")
+                        .header("Connection", "close")
+                        .apply {
+                            if (!cookie.isNullOrEmpty()) header("Cookie", cookie)
+                            if (!userAgent.isNullOrEmpty()) header("User-Agent", userAgent)
+                            // The last try leaves the Referer out (some servers drop such requests).
+                            if (attempt < attempts && !referer.isNullOrEmpty()) header("Referer", referer)
+                        }
+                        .build()
+                    client.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) {
+                            say("Download failed: HTTP ${resp.code}")
+                            return@thread
+                        }
+                        val body = resp.body ?: throw IOException("Empty response")
+                        val cd = resp.header("Content-Disposition") ?: contentDisposition
+                        val headerMime = resp.header("Content-Type")?.substringBefore(';')?.trim()
+                        val mime = if (!headerMime.isNullOrEmpty()) headerMime
+                        else if (!mimeType.isNullOrEmpty()) mimeType
+                        else "application/octet-stream"
+                        val name = URLUtil.guessFileName(url, cd, mime)
+                        val saved = body.byteStream().use { saveToDownloads(name, mime, it) }
+                        say(
+                            if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
+                            else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
+                        )
+                        mainHandler.post {
+                            try {
+                                channel.invokeMethod(
+                                    "onDownloadDone",
+                                    mapOf(
+                                        "name" to saved.name,
+                                        "location" to saved.location,
+                                        "isUri" to saved.isUri,
+                                        "mime" to mime,
+                                        "size" to saved.size,
+                                        "sourceUrl" to url
+                                    )
+                                )
+                            } catch (e: Throwable) {
+                            }
+                        }
                         return@thread
                     }
-                    val cd = conn.getHeaderField("Content-Disposition") ?: contentDisposition
-                    val headerMime = conn.contentType?.substringBefore(';')?.trim()
-                    val mime = if (!headerMime.isNullOrEmpty()) headerMime
-                    else if (!mimeType.isNullOrEmpty()) mimeType
-                    else "application/octet-stream"
-                    val name = URLUtil.guessFileName(url, cd, mime)
-                    val saved = conn.inputStream.use { saveToDownloads(name, mime, it) }
-                    say(
-                        if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
-                        else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
-                    )
-                    mainHandler.post {
-                        try {
-                            channel.invokeMethod(
-                                "onDownloadDone",
-                                mapOf(
-                                    "name" to saved.name,
-                                    "location" to saved.location,
-                                    "isUri" to saved.isUri,
-                                    "mime" to mime,
-                                    "size" to saved.size,
-                                    "sourceUrl" to url
-                                )
-                            )
-                        } catch (e: Throwable) {
-                        }
-                    }
-                    return@thread
                 } catch (e: IOException) {
                     lastError = e
                     if (attempt < attempts) {
@@ -379,37 +386,55 @@ class KWebView(
                 } catch (e: Throwable) {
                     lastError = e
                     break
-                } finally {
-                    conn?.disconnect()
                 }
             }
             val host = try { URL(url).host } catch (_: Throwable) { "?" }
             val via = if (ProxyState.active) "proxy on" else "no proxy"
-            say("Download failed ($host, $via, Android ${Build.VERSION.RELEASE}): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
+            say("Download failed ($host, $via): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
         }
     }
 
-    /** Opens the download connection through the profile's proxy when one is on. */
-    private fun openUrlConnection(url: String): HttpURLConnection {
-        if (!ProxyState.active) return URL(url).openConnection() as HttpURLConnection
-        val type = if (ProxyState.scheme == "socks5") Proxy.Type.SOCKS else Proxy.Type.HTTP
-        val proxy = Proxy(type, InetSocketAddress.createUnresolved(ProxyState.host, ProxyState.port))
-        val user = ProxyState.username
-        val pass = ProxyState.password
-        if (user.isNotEmpty()) {
-            Authenticator.setDefault(object : Authenticator() {
-                override fun getPasswordAuthentication(): PasswordAuthentication? =
-                    if (requestorType == Authenticator.RequestorType.PROXY) {
-                        PasswordAuthentication(user, pass.toCharArray())
-                    } else null
-            })
+    /** HTTP client for downloads: goes through the profile's proxy when one is on, never reuses connections. */
+    private fun buildDownloadClient(): OkHttpClient {
+        val b = OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
+        if (ProxyState.active) {
+            val isSocks = ProxyState.scheme == "socks5"
+            val host = ProxyState.host
+            val port = ProxyState.port
+            val user = ProxyState.username
+            val pass = ProxyState.password
+            b.proxy(
+                Proxy(
+                    if (isSocks) Proxy.Type.SOCKS else Proxy.Type.HTTP,
+                    InetSocketAddress.createUnresolved(host, port)
+                )
+            )
+            if (user.isNotEmpty()) {
+                if (isSocks) {
+                    Authenticator.setDefault(object : Authenticator() {
+                        override fun getPasswordAuthentication(): PasswordAuthentication? =
+                            if (requestorType == Authenticator.RequestorType.PROXY ||
+                                (requestingHost.equals(host, ignoreCase = true) && requestingPort == port)
+                            ) PasswordAuthentication(user, pass.toCharArray()) else null
+                    })
+                } else {
+                    // Answers the proxy's 407 (also for the HTTPS tunnel); gives up after one try.
+                    b.proxyAuthenticator { _, response ->
+                        if (response.request.header("Proxy-Authorization") != null) null
+                        else response.request.newBuilder()
+                            .header("Proxy-Authorization", Credentials.basic(user, pass))
+                            .build()
+                    }
+                }
+            }
         }
-        val conn = URL(url).openConnection(proxy) as HttpURLConnection
-        if (user.isNotEmpty() && type == Proxy.Type.HTTP) {
-            val token = Base64.encodeToString("$user:$pass".toByteArray(), Base64.NO_WRAP)
-            conn.setRequestProperty("Proxy-Authorization", "Basic $token")
-        }
-        return conn
+        return b.build()
     }
 
     private class Saved(
