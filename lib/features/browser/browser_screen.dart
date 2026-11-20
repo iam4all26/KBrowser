@@ -87,6 +87,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   bool _pwOn = true;
   bool _onlyPwScript = true; // no extension or proxy script: unsupported WebViews stay silent
   int? _proxyId;
+  final Map<String, String> _parent = {}; // tab id -> tab it was opened from (this session)
   final ValueNotifier<ProxyGeo?> _geo = ValueNotifier<ProxyGeo?>(null);
   final ValueNotifier<bool> _geoBusy = ValueNotifier<bool>(false);
   List<String> _extScripts = const [];
@@ -507,7 +508,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _applyAdBlock(c);
     if (_extScripts.isNotEmpty) _applyExtensions(c);
     c.onNewWindow = (u) {
-      _tabs.addTab(url: u, desktop: _p.desktopMode);
+      _tabs.addTab(url: u, desktop: _p.desktopMode).then((t) => _parent[t.id] = tabId);
     };
     c.onDownloadMessage = _toast;
     c.onLoginSubmitted = (url, user, pass) => _onLoginSubmitted(url, user, pass);
@@ -598,7 +599,32 @@ class _BrowserScreenState extends State<BrowserScreen> {
   Future<void> _newTab() async {
     await _captureThumb();
     _startTab = 0;
-    await _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
+    final from = _tabs.activeId;
+    final t = await _tabs.addTab(url: kHomeUrl, desktop: _p.desktopMode);
+    if (from != null) _parent[t.id] = from;
+  }
+
+  /// Back button: page history first; then the tab this one was opened from (this tab
+  /// closes); then the profile's start page; only from the start page does it leave the profile.
+  Future<void> _handleBack() async {
+    final id = _tabs.activeId;
+    final c = _activeCtl;
+    if (!_onStart && (c?.state.value.canGoBack ?? false)) {
+      c?.goBack();
+      return;
+    }
+    final parent = id == null ? null : _parent[id];
+    if (id != null && parent != null && _tabs.tabs.any((t) => t.id == parent)) {
+      _parent.remove(id);
+      await _tabs.select(parent);
+      await _tabs.close(id);
+      return;
+    }
+    if (!_onStart) {
+      _goHome();
+      return;
+    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   void _openSettings() {
@@ -1014,7 +1040,6 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final c = _activeCtl;
     final progress = c?.progress.value ?? 1.0;
     final loading = progress < 1.0;
-    final canBack = c?.state.value.canGoBack ?? false;
     final secure = (active?.url ?? '').startsWith('https://');
 
     return PopScope(
@@ -1025,10 +1050,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
           _closeFind();
         } else if (_focus.hasFocus) {
           _focus.unfocus();
-        } else if (canBack) {
-          c?.goBack();
         } else {
-          Navigator.of(context).pop();
+          _handleBack();
         }
       },
       child: Scaffold(
