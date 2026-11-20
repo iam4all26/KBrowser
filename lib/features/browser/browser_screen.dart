@@ -879,18 +879,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
                           : null,
                     ),
                     IconButton(
-                      tooltip: loading ? 'Stop' : 'Reload',
-                      icon: Icon(loading ? Icons.close : Icons.refresh),
-                      onPressed: onStart
-                          ? null
-                          : () {
-                              Navigator.pop(ctx);
-                              if (loading) {
-                                c?.stop();
-                              } else {
-                                c?.reload();
-                              }
-                            },
+                      tooltip: 'Downloads',
+                      icon: const Icon(Icons.download_outlined),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _openDownloads();
+                      },
                     ),
                     IconButton(
                       tooltip: marked ? 'Remove bookmark' : 'Add bookmark',
@@ -1105,11 +1099,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
                           },
                         )
                       : IconButton(
-                          tooltip: 'Downloads',
+                          tooltip: loading ? 'Stop' : 'Reload',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-                          icon: const Icon(Icons.download_outlined, size: 20),
-                          onPressed: _openDownloads,
+                          icon: Icon(loading ? Icons.close : Icons.refresh, size: 20),
+                          onPressed: () => loading ? c?.stop() : c?.reload(),
                         ),
                 ),
               )),
