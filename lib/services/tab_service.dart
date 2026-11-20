@@ -144,6 +144,12 @@ class TabService extends ChangeNotifier {
     await addTab(url: t.url, desktop: t.desktopMode);
   }
 
+  /// Reopens one specific recently closed tab (from the Recent tabs list).
+  Future<void> reopenTab(BrowserTab t) async {
+    recentlyClosed.removeWhere((x) => x.id == t.id);
+    await addTab(url: t.url, desktop: t.desktopMode);
+  }
+
   Future<void> duplicate(String id) async {
     for (final t in tabs) {
       if (t.id == id) {

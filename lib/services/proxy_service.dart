@@ -5,6 +5,21 @@ import 'package:sqflite/sqflite.dart';
 import '../features/proxy/webrtc_script.dart';
 import '../models/proxy_entry.dart';
 
+/// Where a proxy exits to the internet (looked up through the proxy).
+class ProxyGeo {
+  const ProxyGeo({required this.ip, required this.country, required this.code});
+  final String ip;
+  final String country;
+  final String code;
+
+  /// Flag made from the two-letter country code (empty if the code is invalid).
+  String get flag {
+    final u = code.toUpperCase().codeUnits;
+    if (u.length != 2 || u.any((c) => c < 65 || c > 90)) return '';
+    return String.fromCharCodes(u.map((c) => 0x1F1E6 + c - 65));
+  }
+}
+
 /// Proxies (added once at the main Home) and which proxy each profile uses.
 ///
 /// The WebView proxy is process-wide, so only ONE profile may have live WebViews
@@ -15,6 +30,19 @@ class ProxyService extends ChangeNotifier {
 
   /// Profile id that currently owns the process-wide proxy setting.
   static String? owner;
+
+  static final Map<int, ProxyGeo> _geoCache = {};
+
+  /// Country of proxy [proxyId]. It must already be applied to the app (applyFor).
+  /// Cached per proxy for the session; [refresh] asks again.
+  Future<ProxyGeo?> geoFor(int proxyId, {bool refresh = false}) async {
+    if (!refresh && _geoCache.containsKey(proxyId)) return _geoCache[proxyId];
+    final m = await KMultiProfiles.proxyGeo();
+    if (m == null) return null;
+    final g = ProxyGeo(ip: m['ip'] ?? '', country: m['country'] ?? '', code: m['code'] ?? '');
+    _geoCache[proxyId] = g;
+    return g;
+  }
 
   final Database _db;
   List<ProxyEntry> proxies = const [];
@@ -79,6 +107,7 @@ class ProxyService extends ChangeNotifier {
     } else if (password != null && password.isNotEmpty) {
       values['password_enc'] = await KMultiProfiles.encrypt(password);
     }
+    _geoCache.remove(id);
     await _db.update('proxies', values, where: 'id = ?', whereArgs: [id]);
     await load();
   }
@@ -86,6 +115,7 @@ class ProxyService extends ChangeNotifier {
   /// Deleting a proxy switches it off in every profile that used it.
   Future<void> delete(int id) async {
     await _db.delete('profile_settings', where: "key = 'proxy_id' AND value = ?", whereArgs: ['$id']);
+    _geoCache.remove(id);
     await _db.delete('proxies', where: 'id = ?', whereArgs: [id]);
     await load();
   }

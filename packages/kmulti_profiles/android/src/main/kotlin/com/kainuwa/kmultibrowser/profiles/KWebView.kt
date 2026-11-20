@@ -731,6 +731,10 @@ class KWebView(
                     result.success(null)
                 }
             }
+            "clearCache" -> {
+                try { wv.clearCache(true) } catch (e: Throwable) { }
+                result.success(null)
+            }
             "setAdBlock" -> {
                 adBlock = call.argument<Boolean>("enabled") ?: false
                 result.success(null)

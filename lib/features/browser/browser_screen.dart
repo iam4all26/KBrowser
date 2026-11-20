@@ -17,7 +17,10 @@ import '../../services/thumbnail_cache.dart';
 import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
 import '../settings/settings_screen.dart';
+import '../../models/history_entry.dart';
 import 'bookmark_dialog.dart';
+import 'clear_data_dialog.dart';
+import 'recent_tabs_sheet.dart';
 import 'private_browser_screen.dart';
 import 'start_page.dart';
 import '../downloads/downloads_screen.dart';
@@ -78,6 +81,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final DownloadService _downloads = DownloadService(widget.service.db);
   bool _switching = false; // WebViews are being released before another profile opens
   int? _proxyId;
+  final ValueNotifier<ProxyGeo?> _geo = ValueNotifier<ProxyGeo?>(null);
+  final ValueNotifier<bool> _geoBusy = ValueNotifier<bool>(false);
   List<String> _extScripts = const [];
   bool _adBlock = false;
 
@@ -87,6 +92,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       await _proxy.applyFor(_p.id);
       ProxyService.owner = _p.id;
       _proxyId = (await _proxy.proxyFor(_p.id))?.id;
+      _refreshGeo();
       _extScripts = await _scriptsForProfile();
       _adBlock = await _ext.adBlockEnabledFor(_p.id);
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
@@ -119,6 +125,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _url.dispose();
     _findFocus.dispose();
     _findText.dispose();
+    _geo.dispose();
+    _geoBusy.dispose();
     super.dispose();
   }
 
@@ -271,6 +279,62 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
   }
 
+  /// Looks up the country of this profile's proxy (shown in the menu).
+  Future<void> _refreshGeo({bool force = false}) async {
+    final id = _proxyId;
+    if (id == null) {
+      _geo.value = null;
+      return;
+    }
+    _geoBusy.value = true;
+    try {
+      final g = await _proxy.geoFor(id, refresh: force);
+      if (mounted && _proxyId == id) _geo.value = g;
+    } catch (_) {
+      if (mounted && _proxyId == id) _geo.value = null;
+    } finally {
+      if (mounted) _geoBusy.value = false;
+    }
+  }
+
+  Future<void> _openRecentTabs() async {
+    final rows = await _history.list(limit: 60);
+    final seen = <String>{};
+    final recent = <HistoryEntry>[];
+    for (final h in rows) {
+      if (seen.add(h.url)) recent.add(h);
+      if (recent.length >= 10) break;
+    }
+    if (!mounted) return;
+    await showRecentTabs(
+      context,
+      closed: _tabs.recentlyClosed.reversed.toList(),
+      visited: recent,
+      onOpenClosed: (t) => _tabs.reopenTab(t),
+      onOpenUrl: (url) => _tabs.addTab(url: url, desktop: _p.desktopMode),
+    );
+  }
+
+  Future<void> _deleteBrowsingData() async {
+    final what = await showClearDataDialog(context, profileName: _p.displayName);
+    if (what == null || what.isEmpty || !mounted) return;
+    try {
+      if (what.contains('history')) await _history.clear();
+      if (what.contains('cookies')) {
+        await KMultiProfiles.clearSiteData(_p.engineProfileName, cookies: true, storage: true);
+      }
+      if (what.contains('cache')) {
+        for (final c in _ctl.values) {
+          await c.clearCache();
+        }
+      }
+      _toast('Browsing data deleted');
+      if (what.contains('cookies') && !_onStart) _activeCtl?.reload();
+    } catch (e) {
+      _toast('Could not delete: $e');
+    }
+  }
+
   Future<void> _openExtensions() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -290,6 +354,10 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final proxyChanged = proxyId != _proxyId;
     if (!mounted || (!proxyChanged && listEquals(scripts, _extScripts) && adBlock == _adBlock)) return;
     _proxyId = proxyId;
+    if (proxyChanged) {
+      _geo.value = null;
+      _refreshGeo();
+    }
     _extScripts = scripts;
     _adBlock = adBlock;
     for (final c in _ctl.values) {
@@ -587,6 +655,27 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     _showProfileSwitcher();
                   },
                 ),
+                if (_proxyId != null) ...[
+                  const Divider(height: 1),
+                  AnimatedBuilder(
+                    animation: Listenable.merge([_geo, _geoBusy]),
+                    builder: (_, __) {
+                      final g = _geo.value;
+                      return ListTile(
+                        leading: g != null && g.flag.isNotEmpty
+                            ? Text(g.flag, style: const TextStyle(fontSize: 22))
+                            : const Icon(Icons.vpn_lock_outlined),
+                        title: Text(g != null
+                            ? g.country
+                            : (_geoBusy.value ? 'Checking proxy...' : 'Proxy location unknown')),
+                        subtitle: Text(g != null
+                            ? '${g.code.toUpperCase()}  ${g.ip}'
+                            : (_geoBusy.value ? 'Proxy is on' : 'Proxy is on. Tap to retry')),
+                        onTap: _geoBusy.value ? null : () => _refreshGeo(force: true),
+                      );
+                    },
+                  ),
+                ],
                 const Divider(height: 1),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -642,6 +731,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 item(Icons.visibility_off_outlined, 'New private tab', _openPrivate),
                 if (_tabs.recentlyClosed.isNotEmpty)
                   item(Icons.undo, 'Reopen closed tab', () => _tabs.reopenClosed()),
+                item(Icons.restore, 'Recent tabs', _openRecentTabs),
                 if (t != null) item(Icons.copy_all_outlined, 'Duplicate tab', () => _tabs.duplicate(t.id)),
                 item(
                   Icons.desktop_windows_outlined,
@@ -673,6 +763,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                   }),
                 ],
                 item(Icons.history, 'History', _openHistory),
+                item(Icons.cleaning_services_outlined, 'Delete browsing data', _deleteBrowsingData),
                 item(
                   Icons.download_outlined,
                   'Downloads',

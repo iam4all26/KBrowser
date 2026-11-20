@@ -70,6 +70,17 @@ class KMultiProfiles {
   /// Removes the proxy: WebViews use the normal connection again.
   static Future<void> clearProxy() => _channel.invokeMethod<void>('setProxy', {'clear': true});
 
+  /// Country of the proxy now in use: keys ip, country, code. Null if there is no
+  /// proxy or the lookup failed.
+  static Future<Map<String, String>?> proxyGeo() async {
+    final r = await _channel.invokeMapMethod<String, String>('proxyGeo');
+    return r;
+  }
+
+  /// Deletes cookies and/or web storage (localStorage, IndexedDB) of one engine profile.
+  static Future<void> clearSiteData(String profile, {bool cookies = false, bool storage = false}) =>
+      _channel.invokeMethod<void>('clearSiteData', {'name': profile, 'cookies': cookies, 'storage': storage});
+
   /// Encrypts text with a key kept in the Android Keystore.
   static Future<String> encrypt(String text) async =>
       (await _channel.invokeMethod<String>('encrypt', {'text': text})) ?? '';
@@ -188,6 +199,9 @@ class KWebViewController {
   /// Turns the built-in ad and tracker request blocker on or off for this WebView.
   Future<void> setAdBlock(bool enabled) =>
       _channel.invokeMethod<void>('setAdBlock', {'enabled': enabled});
+
+  /// Empties the HTTP cache of this WebView's profile.
+  Future<void> clearCache() => _channel.invokeMethod<void>('clearCache');
 
   Future<void> setExtensions(List<String> scripts) =>
       _channel.invokeMethod<void>('setExtensions', {'scripts': scripts});

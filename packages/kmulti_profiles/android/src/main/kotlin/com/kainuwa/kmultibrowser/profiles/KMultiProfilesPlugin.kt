@@ -121,6 +121,26 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
                     // Result is sent only when WebView confirms the new proxy is in use.
                     ProxyController.getInstance().setProxyOverride(config, executor, Runnable { result.success(null) })
                 }
+                "proxyGeo" -> {
+                    // Country of the proxy in use (looked up THROUGH the proxy only).
+                    Thread {
+                        val r = try { GeoLookup.lookup() } catch (e: Throwable) { null }
+                        mainHandler.post { result.success(r) }
+                    }.start()
+                }
+                "clearSiteData" -> {
+                    requireSupported()
+                    val name = call.argument<String>("name") ?: error("name missing")
+                    val profile = ProfileStore.getInstance().getProfile(name) ?: error("profile not found")
+                    if (call.argument<Boolean>("cookies") == true) {
+                        profile.cookieManager.removeAllCookies(null)
+                        profile.cookieManager.flush()
+                    }
+                    if (call.argument<Boolean>("storage") == true) {
+                        profile.webStorage.deleteAllData()
+                    }
+                    result.success(null)
+                }
                 "encrypt" -> {
                     val text = call.argument<String>("text") ?: error("text missing")
                     result.success(KeystoreCrypto.encrypt(text))
