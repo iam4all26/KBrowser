@@ -506,23 +506,36 @@ class KWebView(
             // a fresh connection.
             val attempts = 3
             var lastError: Throwable? = null
+            var httpFail: String? = null
             val client = buildDownloadClient()
             for (attempt in 1..attempts) {
                 try {
                     val req = Request.Builder().url(url)
-                        .header("Accept", "*/*")
-                        .header("Accept-Encoding", "identity")
                         .header("Connection", "close")
-                        .apply {
-                            if (!cookie.isNullOrEmpty()) header("Cookie", cookie)
-                            if (!userAgent.isNullOrEmpty()) header("User-Agent", userAgent)
-                            // The last try leaves the Referer out (some servers drop such requests).
-                            if (attempt < attempts && !referer.isNullOrEmpty()) header("Referer", referer)
-                        }
+                        .apply { browserHeaders(this, attempt, attempts, url, userAgent, referer) }
+                        .apply { if (!cookie.isNullOrEmpty()) header("Cookie", cookie) }
                         .build()
                     client.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) {
-                            val msg = "Download failed: HTTP ${resp.code}"
+                            val server = resp.header("Server").orEmpty()
+                            val who = when {
+                                resp.header("CF-Ray") != null || server.contains("cloudflare", true) -> " (Cloudflare)"
+                                server.isNotEmpty() -> " ($server)"
+                                else -> ""
+                            }
+                            val msg = "Download failed: HTTP ${resp.code}$who" +
+                                (if (ProxyState.active) ", via proxy" else ", no proxy") +
+                                (if (attempt > 1) ", try $attempt of $attempts" else "")
+                            // Sites that guard against bots answer 403, 429 or 503 to a request that
+                            // does not look like Chrome: try again with different headers.
+                            if ((resp.code == 403 || resp.code == 429 || resp.code == 503) && attempt < attempts) {
+                                httpFail = msg
+                                try {
+                                    Thread.sleep(700L * attempt)
+                                } catch (_: InterruptedException) {
+                                }
+                                return@use
+                            }
                             say(msg)
                             sendDl("onDownloadFailed", mapOf("id" to dlId, "message" to msg))
                             return@thread
@@ -602,10 +615,52 @@ class KWebView(
             }
             val host = try { URL(url).host } catch (_: Throwable) { "?" }
             val via = if (ProxyState.active) "proxy on" else "no proxy"
-            val msg = "Download failed ($host, $via): ${lastError?.javaClass?.simpleName}: ${lastError?.message}"
+            val msg = httpFail
+                ?: "Download failed ($host, $via): ${lastError?.javaClass?.simpleName}: ${lastError?.message}"
             say(msg)
             sendDl("onDownloadFailed", mapOf("id" to dlId, "message" to msg))
         }
+    }
+
+    /**
+     * Headers of a download request. Tries 1 and 2 look like a Chrome page navigation
+     * (language, Sec-Fetch-*, client hints; compression left to OkHttp); try 2 leaves the
+     * Referer out. Try 3 is plain: no extras, no compression (the older, proven request).
+     */
+    private fun browserHeaders(
+        b: Request.Builder, attempt: Int, attempts: Int, url: String, userAgent: String?, referer: String?
+    ) {
+        if (!userAgent.isNullOrEmpty()) b.header("User-Agent", userAgent)
+        if (attempt >= attempts) {
+            b.header("Accept", "*/*")
+            b.header("Accept-Encoding", "identity")
+            return
+        }
+        b.header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+        )
+        val lang = java.util.Locale.getDefault().toLanguageTag()
+        b.header("Accept-Language", if (lang.startsWith("en")) "$lang,en;q=0.9" else "$lang,en;q=0.8")
+        b.header("Upgrade-Insecure-Requests", "1")
+        val ua = userAgent.orEmpty()
+        val chrome = Regex("Chrome/(\\d+)").find(ua)?.groupValues?.get(1)
+        if (chrome != null) {
+            b.header("sec-ch-ua", "\"Chromium\";v=\"$chrome\", \"Not A(Brand\";v=\"99\", \"Google Chrome\";v=\"$chrome\"")
+            b.header("sec-ch-ua-mobile", if (ua.contains("Mobile")) "?1" else "?0")
+            b.header("sec-ch-ua-platform", if (ua.contains("Android")) "\"Android\"" else "\"Linux\"")
+        }
+        val withReferer = attempt == 1 && !referer.isNullOrEmpty()
+        val site = if (!withReferer) "none" else try {
+            val rh = URL(referer!!).host
+            val uh = URL(url).host
+            if (rh.equals(uh, true)) "same-origin" else "cross-site"
+        } catch (_: Throwable) { "cross-site" }
+        b.header("Sec-Fetch-Site", site)
+        b.header("Sec-Fetch-Mode", "navigate")
+        b.header("Sec-Fetch-User", "?1")
+        b.header("Sec-Fetch-Dest", "document")
+        if (withReferer) b.header("Referer", referer!!)
     }
 
     /** Sends a download event to Dart (safe from any thread). */
