@@ -234,10 +234,10 @@ class KWebView(
                     fun fire(url: String?, fromOverride: Boolean) {
                         if (fired || url.isNullOrEmpty() || url == "about:blank") return
                         fired = true
-                        // Batch 23: Google sign-in pop-ups must stay linked to the page that
+                        // Batch 23c: login/OAuth/payment pop-ups must stay linked to the page that
                         // opened them (window.opener), so they are kept as a real pop-up
                         // overlay instead of being turned into a separate tab.
-                        if (isGoogleAuthUrl(url)) {
+                        if (isAuthPopup(url, isDialog)) {
                             mainHandler.post { promotePopup(temp, view, url, fromOverride) }
                             return
                         }
@@ -287,8 +287,26 @@ class KWebView(
         }
     }
 
-    private fun isGoogleAuthUrl(url: String): Boolean =
-        try { Uri.parse(url).host == "accounts.google.com" } catch (e: Throwable) { false }
+    /**
+     * True for pop-ups that must keep window.opener (login, OAuth, payment windows).
+     * window.open with size features (isDialog) is how almost all of them are opened.
+     * Otherwise known identity hosts and OAuth-style URLs. Plain links open as tabs.
+     */
+    private fun isAuthPopup(url: String, isDialog: Boolean): Boolean {
+        if (isDialog) return true
+        val host = try { (Uri.parse(url).host ?: "").lowercase() } catch (e: Throwable) { return false }
+        if (host == "accounts.google.com" || host == "appleid.apple.com" ||
+            host == "login.microsoftonline.com" || host == "login.live.com" ||
+            host == "api.twitter.com" || host.endsWith(".okta.com") ||
+            host.endsWith(".auth0.com") || host.endsWith(".b2clogin.com")
+        ) return true
+        val l = url.lowercase()
+        val markers = listOf(
+            "/oauth", "oauth2", "/authorize", "/dialog/", "openid",
+            "response_type=", "client_id=", "redirect_uri=", "/saml"
+        )
+        return markers.any { l.contains(it) }
+    }
 
     private fun closePopup() {
         val v = popup
