@@ -122,9 +122,22 @@ class KMultiProfilesPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodC
                     ProxyController.getInstance().setProxyOverride(config, executor, Runnable { result.success(null) })
                 }
                 "proxyGeo" -> {
-                    // Country of the proxy in use (looked up THROUGH the proxy only).
+                    // mode "current": the proxy in use. "direct": the phone's own connection
+                    // (refused while a proxy is applied). "via": one given proxy.
+                    val mode = call.argument<String>("mode") ?: "current"
+                    val vScheme = call.argument<String>("scheme") ?: ""
+                    val vHost = call.argument<String>("host") ?: ""
+                    val vPort = call.argument<Int>("port") ?: 0
+                    val vUser = call.argument<String>("username") ?: ""
+                    val vPass = call.argument<String>("password") ?: ""
                     Thread {
-                        val r = try { GeoLookup.lookup() } catch (e: Throwable) { null }
+                        val r = try {
+                            when (mode) {
+                                "direct" -> GeoLookup.lookupDirect()
+                                "via" -> GeoLookup.lookupVia(vScheme, vHost, vPort, vUser, vPass)
+                                else -> GeoLookup.lookup()
+                            }
+                        } catch (e: Throwable) { null }
                         mainHandler.post { result.success(r) }
                     }.start()
                 }

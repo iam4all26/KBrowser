@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/app_profile.dart';
+import '../../core/theme/app_theme.dart';
 import '../../models/proxy_entry.dart';
 import '../../models/user_extension.dart';
 import '../../services/extension_service.dart';
@@ -55,40 +56,75 @@ class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
     if (mounted) setState(() => _adBlockOn = value);
   }
 
+  /// Flag (or a small spinner while it is looked up) for a proxy in the picker.
+  Widget _flagFor(ProxyEntry p) {
+    final g = widget.proxy.cachedGeo(p.id);
+    if (g != null && g.flag.isNotEmpty) {
+      return Text(g.flag, style: const TextStyle(fontSize: 22));
+    }
+    if (widget.proxy.isGeoBusy(p.id)) {
+      return const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    return const Icon(Icons.public, size: 20);
+  }
+
   Future<void> _pickProxy() async {
     final list = widget.proxy.proxies;
+    // Country of each proxy is asked through that proxy; flags appear as answers arrive.
+    widget.proxy.fillGeos(list);
     final choice = await showDialog<int>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Proxy for this profile'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, -1),
-            child: Row(
-              children: [
-                Icon(_proxy == null ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
-                const SizedBox(width: 12),
-                const Expanded(child: Text('None (my real IP address)')),
-              ],
-            ),
-          ),
-          for (final p in list)
+      builder: (ctx) => ListenableBuilder(
+        listenable: widget.proxy,
+        builder: (ctx, _) => SimpleDialog(
+          title: const Text('Proxy for this profile'),
+          children: [
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, p.id),
+              onPressed: () => Navigator.pop(ctx, -1),
               child: Row(
                 children: [
-                  Icon(_proxy?.id == p.id ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text('${p.name}  (${p.scheme}://${p.host}:${p.port})')),
+                  const SizedBox(width: 28, child: Center(child: Icon(Icons.public, size: 20))),
+                  const SizedBox(width: 10),
+                  const Expanded(child: Text('None (my real IP address)')),
+                  Icon(_proxy == null ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
                 ],
               ),
             ),
-          if (list.isEmpty)
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
-              child: Text('No proxies yet. Add them on the main Home, Extensions tab, Proxy.'),
-            ),
-        ],
+            for (final p in list)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, p.id),
+                child: Row(
+                  children: [
+                    SizedBox(width: 28, child: Center(child: _flagFor(p))),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text(
+                            [
+                              if (widget.proxy.cachedGeo(p.id) != null) widget.proxy.cachedGeo(p.id)!.country,
+                              '${p.host}:${p.port}',
+                            ].join('  |  '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: ctx.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(_proxy?.id == p.id ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
+                  ],
+                ),
+              ),
+            if (list.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+                child: Text('No proxies yet. Add them on the main Home, Extensions tab, Proxy.'),
+              ),
+          ],
+        ),
       ),
     );
     if (choice == null) return;
@@ -138,7 +174,7 @@ class _ProfileExtensionsScreenState extends State<ProfileExtensionsScreen> {
                   subtitle: Text(
                     _proxy == null
                         ? 'None. Websites see your real IP address.'
-                        : '${_proxy!.name} (${_proxy!.scheme}://${_proxy!.host}:${_proxy!.port}). WebRTC is off and downloads use the proxy.',
+                        : '${widget.proxy.cachedGeo(_proxy!.id)?.flag ?? ''} ${_proxy!.name} (${_proxy!.scheme}://${_proxy!.host}:${_proxy!.port}). WebRTC is off and downloads use the proxy.'.trimLeft(),
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _pickProxy,

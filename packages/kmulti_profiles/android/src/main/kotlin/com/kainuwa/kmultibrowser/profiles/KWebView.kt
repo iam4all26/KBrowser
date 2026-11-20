@@ -495,6 +495,10 @@ class KWebView(
         referer: String?
     ) {
         say("Downloading...")
+        val dlId = "d${downloadSeq.incrementAndGet()}_${System.currentTimeMillis()}"
+        // Shown in the Downloads screen straight away, with a name guessed from the address.
+        val firstName = fileNameFor(url, contentDisposition, mimeType)
+        sendDl("onDownloadStart", mapOf("id" to dlId, "name" to firstName, "sourceUrl" to url))
         thread(name = "kmulti-download") {
             // OkHttp is used instead of HttpURLConnection: the built-in one on older Android
             // versions (for example Android 8) breaks on authenticated HTTPS proxies and on
@@ -518,42 +522,74 @@ class KWebView(
                         .build()
                     client.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) {
-                            say("Download failed: HTTP ${resp.code}")
+                            val msg = "Download failed: HTTP ${resp.code}"
+                            say(msg)
+                            sendDl("onDownloadFailed", mapOf("id" to dlId, "message" to msg))
                             return@thread
                         }
                         val body = resp.body ?: throw IOException("Empty response")
                         val cd = resp.header("Content-Disposition") ?: contentDisposition
                         val headerMime = resp.header("Content-Type")?.substringBefore(';')?.trim()
-                        val mime = if (!headerMime.isNullOrEmpty()) headerMime
+                        val declared = if (!headerMime.isNullOrEmpty()) headerMime
                         else if (!mimeType.isNullOrEmpty()) mimeType
                         else "application/octet-stream"
-                        val name = URLUtil.guessFileName(url, cd, mime)
-                        val saved = body.byteStream().use { saveToDownloads(name, mime, it) }
+                        val name = fileNameFor(url, cd, declared)
+                        val mime = mimeForName(name, declared)
+                        val total = body.contentLength()
+                        sendDl(
+                            "onDownloadProgress",
+                            mapOf("id" to dlId, "name" to name, "received" to 0L, "total" to total)
+                        )
+                        var lastSent = 0L
+                        var count = 0L
+                        val counting = object : java.io.FilterInputStream(body.byteStream()) {
+                            override fun read(): Int {
+                                val r = super.read()
+                                if (r >= 0) tick(1)
+                                return r
+                            }
+
+                            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                                val n = super.read(b, off, len)
+                                if (n > 0) tick(n)
+                                return n
+                            }
+
+                            private fun tick(n: Int) {
+                                count += n
+                                val now = System.currentTimeMillis()
+                                if (now - lastSent >= 300) {
+                                    lastSent = now
+                                    sendDl(
+                                        "onDownloadProgress",
+                                        mapOf("id" to dlId, "received" to count, "total" to total)
+                                    )
+                                }
+                            }
+                        }
+                        val saved = counting.use { saveToDownloads(name, mime, it) }
                         say(
                             if (saved.publicFolder) "Saved to Downloads: ${saved.name}"
                             else "Saved in the app's own folder (storage permission was not allowed): ${saved.name}"
                         )
-                        mainHandler.post {
-                            try {
-                                channel.invokeMethod(
-                                    "onDownloadDone",
-                                    mapOf(
-                                        "name" to saved.name,
-                                        "location" to saved.location,
-                                        "isUri" to saved.isUri,
-                                        "mime" to mime,
-                                        "size" to saved.size,
-                                        "sourceUrl" to url
-                                    )
-                                )
-                            } catch (e: Throwable) {
-                            }
-                        }
+                        sendDl(
+                            "onDownloadDone",
+                            mapOf(
+                                "id" to dlId,
+                                "name" to saved.name,
+                                "location" to saved.location,
+                                "isUri" to saved.isUri,
+                                "mime" to mime,
+                                "size" to saved.size,
+                                "sourceUrl" to url
+                            )
+                        )
                         return@thread
                     }
                 } catch (e: IOException) {
                     lastError = e
                     if (attempt < attempts) {
+                        sendDl("onDownloadProgress", mapOf("id" to dlId, "received" to 0L, "total" to -1L, "retry" to attempt))
                         try {
                             Thread.sleep(700L * attempt)
                         } catch (_: InterruptedException) {
@@ -566,8 +602,81 @@ class KWebView(
             }
             val host = try { URL(url).host } catch (_: Throwable) { "?" }
             val via = if (ProxyState.active) "proxy on" else "no proxy"
-            say("Download failed ($host, $via): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
+            val msg = "Download failed ($host, $via): ${lastError?.javaClass?.simpleName}: ${lastError?.message}"
+            say(msg)
+            sendDl("onDownloadFailed", mapOf("id" to dlId, "message" to msg))
         }
+    }
+
+    /** Sends a download event to Dart (safe from any thread). */
+    private fun sendDl(method: String, args: Map<String, Any?>) {
+        mainHandler.post {
+            try {
+                channel.invokeMethod(method, args)
+            } catch (e: Throwable) {
+            }
+        }
+    }
+
+    private fun isGenericMime(m: String?): Boolean {
+        val x = m?.lowercase()?.trim().orEmpty()
+        return x.isEmpty() || x == "application/octet-stream" || x == "binary/octet-stream" ||
+            x == "application/force-download" || x == "application/x-download" ||
+            x == "application/download" || x == "application/unknown"
+    }
+
+    /**
+     * File name for a download. The name sent by the server (Content-Disposition) or in the
+     * address is kept AS IS, including its extension. Android's URLUtil.guessFileName is not
+     * used because it swaps the extension for ".bin" when the server sends a generic type
+     * (an .apk served as application/octet-stream became "file.bin").
+     * Only a name WITHOUT an extension gets one, taken from a specific MIME type.
+     */
+    private fun fileNameFor(url: String, contentDisposition: String?, mime: String?): String {
+        var name: String? = null
+        val cd = contentDisposition.orEmpty()
+        // filename*=UTF-8''name%20here.ext
+        Regex("filename\\*\\s*=\\s*[^']*'[^']*'([^;]+)", RegexOption.IGNORE_CASE).find(cd)?.let {
+            name = try { java.net.URLDecoder.decode(it.groupValues[1].trim().trim('"'), "UTF-8") } catch (_: Throwable) { null }
+        }
+        if (name.isNullOrBlank()) {
+            Regex("filename\\s*=\\s*\"([^\"]+)\"", RegexOption.IGNORE_CASE).find(cd)?.let { name = it.groupValues[1] }
+        }
+        if (name.isNullOrBlank()) {
+            Regex("filename\\s*=\\s*([^;\"]+)", RegexOption.IGNORE_CASE).find(cd)?.let { name = it.groupValues[1].trim() }
+        }
+        if (name.isNullOrBlank()) {
+            val path = try { Uri.parse(url).lastPathSegment } catch (_: Throwable) { null }
+            if (!path.isNullOrBlank()) name = Uri.decode(path)
+        }
+        var n = (name ?: "").replace(Regex("[\\u0000-\\u001f/\\\\:*?\"<>|]"), "_").trim().trim('.')
+        if (n.isEmpty()) n = "download"
+        if (n.length > 120) {
+            val dot = n.lastIndexOf('.')
+            n = if (dot in 1..10) n.substring(0, 120 - (n.length - dot)) + n.substring(dot) else n.substring(0, 120)
+        }
+        val dot = n.lastIndexOf('.')
+        val hasExt = dot > 0 && dot < n.length - 1 && n.length - dot <= 8
+        if (!hasExt && !isGenericMime(mime)) {
+            val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime!!.lowercase())
+            if (!ext.isNullOrEmpty()) n = "$n.$ext"
+        }
+        return n
+    }
+
+    /**
+     * MIME type stored with the file. The extension wins when Android knows it (so Android
+     * does not rename the file to match a generic or wrong server type); otherwise the
+     * server's type is used.
+     */
+    private fun mimeForName(name: String, declared: String): String {
+        val dot = name.lastIndexOf('.')
+        if (dot > 0 && dot < name.length - 1) {
+            val fromExt = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(name.substring(dot + 1).lowercase())
+            if (!fromExt.isNullOrEmpty()) return fromExt
+        }
+        return if (isGenericMime(declared)) "application/octet-stream" else declared
     }
 
     /** HTTP client for downloads: goes through the profile's proxy when one is on, never reuses connections. */
@@ -593,12 +702,7 @@ class KWebView(
             )
             if (user.isNotEmpty()) {
                 if (isSocks) {
-                    Authenticator.setDefault(object : Authenticator() {
-                        override fun getPasswordAuthentication(): PasswordAuthentication? =
-                            if (requestorType == Authenticator.RequestorType.PROXY ||
-                                (requestingHost.equals(host, ignoreCase = true) && requestingPort == port)
-                            ) PasswordAuthentication(user, pass.toCharArray()) else null
-                    })
+                    GeoLookup.registerSocksLogin(host, port, user, pass)
                 } else {
                     // Answers the proxy's 407 (also for the HTTPS tunnel); gives up after one try.
                     b.proxyAuthenticator { _, response ->
@@ -883,3 +987,6 @@ show();
 </script></body></html>"""
     }
 }
+
+/** Counter for download ids (unique across all WebViews). */
+private val downloadSeq = AtomicInteger(0)

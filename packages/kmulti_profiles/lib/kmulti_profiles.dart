@@ -77,6 +77,28 @@ class KMultiProfiles {
     return r;
   }
 
+  /// Country of the phone's own connection (keys ip, country, code). Only works while
+  /// no proxy is applied; null otherwise or if the lookup failed.
+  static Future<Map<String, String>?> directGeo() =>
+      _channel.invokeMapMethod<String, String>('proxyGeo', {'mode': 'direct'});
+
+  /// Country of ONE given proxy, looked up through that proxy (it need not be applied).
+  static Future<Map<String, String>?> geoVia({
+    required String scheme,
+    required String host,
+    required int port,
+    String username = '',
+    String password = '',
+  }) =>
+      _channel.invokeMapMethod<String, String>('proxyGeo', {
+        'mode': 'via',
+        'scheme': scheme,
+        'host': host,
+        'port': port,
+        'username': username,
+        'password': password,
+      });
+
   /// Deletes cookies and/or web storage (localStorage, IndexedDB) of one engine profile.
   static Future<void> clearSiteData(String profile, {bool cookies = false, bool storage = false}) =>
       _channel.invokeMethod<void>('clearSiteData', {'name': profile, 'cookies': cookies, 'storage': storage});
@@ -152,6 +174,12 @@ class KWebViewController {
           final total = (f['total'] as num?)?.toInt() ?? 0;
           final active = (f['active'] as num?)?.toInt() ?? 0;
           find.value = KFindState(active: total == 0 ? 0 : active + 1, total: total);
+        case 'onDownloadStart':
+          onDownloadStart?.call(Map<String, dynamic>.from(call.arguments as Map));
+        case 'onDownloadProgress':
+          onDownloadProgress?.call(Map<String, dynamic>.from(call.arguments as Map));
+        case 'onDownloadFailed':
+          onDownloadFailed?.call(Map<String, dynamic>.from(call.arguments as Map));
         case 'onDownloadDone':
           onDownloadDone?.call(Map<String, dynamic>.from(call.arguments as Map));
         case 'onDownload':
@@ -187,8 +215,17 @@ class KWebViewController {
   /// Called with a short message when a download starts or cannot start.
   void Function(String message)? onDownloadMessage;
 
-  /// Called when a download is saved: name, location, isUri, mime, size, sourceUrl.
+  /// Called when a download is saved: id, name, location, isUri, mime, size, sourceUrl.
   void Function(Map<String, dynamic> info)? onDownloadDone;
+
+  /// A download began: id, name (a guess until the server answers), sourceUrl.
+  void Function(Map<String, dynamic> info)? onDownloadStart;
+
+  /// Progress: id, received (bytes), total (bytes, -1 if unknown), optional name, optional retry.
+  void Function(Map<String, dynamic> info)? onDownloadProgress;
+
+  /// A download failed: id, message.
+  void Function(Map<String, dynamic> info)? onDownloadFailed;
 
   Future<void> loadUrl(String url) =>
       _channel.invokeMethod<void>('loadUrl', {'url': url});

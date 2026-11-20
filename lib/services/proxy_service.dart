@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:kmulti_profiles/kmulti_profiles.dart';
 import 'package:sqflite/sqflite.dart';
@@ -11,6 +13,20 @@ class ProxyGeo {
   final String ip;
   final String country;
   final String code;
+
+  String toStorage() => jsonEncode({'ip': ip, 'country': country, 'code': code});
+
+  static ProxyGeo? fromStorage(String? v) {
+    if (v == null || v.isEmpty) return null;
+    try {
+      final m = jsonDecode(v) as Map<String, dynamic>;
+      final code = (m['code'] as String?) ?? '';
+      if (code.length != 2) return null;
+      return ProxyGeo(ip: (m['ip'] as String?) ?? '', country: (m['country'] as String?) ?? '', code: code);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Flag made from the two-letter country code (empty if the code is invalid).
   String get flag {
@@ -32,16 +48,93 @@ class ProxyService extends ChangeNotifier {
   static String? owner;
 
   static final Map<int, ProxyGeo> _geoCache = {};
+  static ProxyGeo? _directGeo; // the phone's own connection, this session only
+  final Set<int> _geoBusy = {};
+
+  /// Where proxy [proxyId] exits, if known (memory or the saved copy). No network.
+  ProxyGeo? cachedGeo(int proxyId) => _geoCache[proxyId];
+
+  /// True while a lookup for [proxyId] is running (see [fillGeos]).
+  bool isGeoBusy(int proxyId) => _geoBusy.contains(proxyId);
+
+  Future<void> _saveGeo(int proxyId, ProxyGeo g) async {
+    _geoCache[proxyId] = g;
+    try {
+      await _db.insert(
+        'app_settings',
+        {'key': 'proxy_geo_$proxyId', 'value': g.toStorage()},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _forgetGeo(int proxyId) async {
+    _geoCache.remove(proxyId);
+    try {
+      await _db.delete('app_settings', where: 'key = ?', whereArgs: ['proxy_geo_$proxyId']);
+    } catch (_) {}
+  }
+
+  ProxyGeo? _fromMap(Map<String, String>? m) =>
+      m == null ? null : ProxyGeo(ip: m['ip'] ?? '', country: m['country'] ?? '', code: m['code'] ?? '');
 
   /// Country of proxy [proxyId]. It must already be applied to the app (applyFor).
-  /// Cached per proxy for the session; [refresh] asks again.
+  /// Cached per proxy; [refresh] asks again. If the lookup fails the last saved answer is kept.
   Future<ProxyGeo?> geoFor(int proxyId, {bool refresh = false}) async {
     if (!refresh && _geoCache.containsKey(proxyId)) return _geoCache[proxyId];
-    final m = await KMultiProfiles.proxyGeo();
-    if (m == null) return null;
-    final g = ProxyGeo(ip: m['ip'] ?? '', country: m['country'] ?? '', code: m['code'] ?? '');
-    _geoCache[proxyId] = g;
+    final g = _fromMap(await KMultiProfiles.proxyGeo());
+    if (g == null) return _geoCache[proxyId];
+    await _saveGeo(proxyId, g);
     return g;
+  }
+
+  /// Country of the phone's own connection (used when the profile has no proxy).
+  /// Only valid while no proxy is applied. Cached for the session; [refresh] asks again.
+  Future<ProxyGeo?> directGeoFor({bool refresh = false}) async {
+    if (!refresh && _directGeo != null) return _directGeo;
+    final g = _fromMap(await KMultiProfiles.directGeo());
+    if (g != null) _directGeo = g;
+    return g ?? _directGeo;
+  }
+
+  /// Country of one proxy, asked THROUGH that proxy (it need not be applied).
+  Future<ProxyGeo?> geoOfProxy(ProxyEntry p, {bool refresh = false}) async {
+    if (!refresh && _geoCache.containsKey(p.id)) return _geoCache[p.id];
+    final password = p.passwordEnc.isEmpty ? '' : await KMultiProfiles.decrypt(p.passwordEnc);
+    final g = _fromMap(await KMultiProfiles.geoVia(
+      scheme: p.scheme,
+      host: p.host,
+      port: p.port,
+      username: p.username,
+      password: password,
+    ));
+    if (g == null) return _geoCache[p.id];
+    await _saveGeo(p.id, g);
+    return g;
+  }
+
+  /// Looks up the country of every proxy in [list] that has none yet (3 at a time) and
+  /// notifies listeners after each one, so flags appear as they arrive.
+  Future<void> fillGeos(List<ProxyEntry> list) async {
+    final todo = list.where((p) => !_geoCache.containsKey(p.id) && !_geoBusy.contains(p.id)).toList();
+    if (todo.isEmpty) return;
+    for (final p in todo) {
+      _geoBusy.add(p.id);
+    }
+    notifyListeners();
+    var next = 0;
+    Future<void> worker() async {
+      while (next < todo.length) {
+        final p = todo[next++];
+        try {
+          await geoOfProxy(p);
+        } catch (_) {}
+        _geoBusy.remove(p.id);
+        notifyListeners();
+      }
+    }
+
+    await Future.wait([worker(), worker(), worker()]);
   }
 
   final Database _db;
@@ -60,6 +153,14 @@ class ProxyService extends ChangeNotifier {
       if (id != null) map[id] = r['c'] as int;
     }
     usage = map;
+    try {
+      final g = await _db.query('app_settings', where: "key LIKE 'proxy_geo_%'");
+      for (final r in g) {
+        final id = int.tryParse('${r['key']}'.substring('proxy_geo_'.length));
+        final geo = ProxyGeo.fromStorage(r['value'] as String?);
+        if (id != null && geo != null && !_geoCache.containsKey(id)) _geoCache[id] = geo;
+      }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -107,7 +208,7 @@ class ProxyService extends ChangeNotifier {
     } else if (password != null && password.isNotEmpty) {
       values['password_enc'] = await KMultiProfiles.encrypt(password);
     }
-    _geoCache.remove(id);
+    await _forgetGeo(id);
     await _db.update('proxies', values, where: 'id = ?', whereArgs: [id]);
     await load();
   }
@@ -115,7 +216,7 @@ class ProxyService extends ChangeNotifier {
   /// Deleting a proxy switches it off in every profile that used it.
   Future<void> delete(int id) async {
     await _db.delete('profile_settings', where: "key = 'proxy_id' AND value = ?", whereArgs: ['$id']);
-    _geoCache.remove(id);
+    await _forgetGeo(id);
     await _db.delete('proxies', where: 'id = ?', whereArgs: [id]);
     await load();
   }

@@ -10,26 +10,46 @@ import java.net.Authenticator
 import java.net.InetSocketAddress
 import java.net.PasswordAuthentication
 import java.net.Proxy
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * Finds the country of the proxy that is currently applied (see [ProxyState]).
- * Goes ONLY through the proxy; when no proxy is active it returns null, so the
- * real address of the phone is never looked up.
+ * Finds the country behind an address. Three modes:
+ *  - [lookup]: the proxy that is currently applied (see [ProxyState]);
+ *  - [lookupVia]: one given proxy (used to show flags when choosing a proxy);
+ *  - [lookupDirect]: the phone's own connection, only while NO proxy is applied.
  */
 object GeoLookup {
-    private fun client(): OkHttpClient {
+    // SOCKS logins by "host:port". One shared Authenticator answers for all of them,
+    // so several lookups and downloads can run at the same time.
+    private val socksLogins = ConcurrentHashMap<String, Pair<String, String>>()
+
+    /** Registers a SOCKS5 login and (re)installs the shared Authenticator. */
+    fun registerSocksLogin(host: String, port: Int, user: String, pass: String) {
+        socksLogins["${host.lowercase()}:$port"] = Pair(user, pass)
+        Authenticator.setDefault(object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication? {
+                val key = "${requestingHost.orEmpty().lowercase()}:$requestingPort"
+                val c = socksLogins[key] ?: return null
+                return PasswordAuthentication(c.first, c.second.toCharArray())
+            }
+        })
+    }
+
+    private fun client(
+        scheme: String?, host: String, port: Int, user: String, pass: String
+    ): OkHttpClient {
         val b = OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
             .connectionPool(ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(12, TimeUnit.SECONDS)
             .callTimeout(25, TimeUnit.SECONDS)
-        val host = ProxyState.host
-        val port = ProxyState.port
-        val isSocks = ProxyState.scheme == "socks5"
-        val user = ProxyState.username
-        val pass = ProxyState.password
+        if (scheme == null) {
+            b.proxy(Proxy.NO_PROXY)
+            return b.build()
+        }
+        val isSocks = scheme == "socks5"
         b.proxy(
             Proxy(
                 if (isSocks) Proxy.Type.SOCKS else Proxy.Type.HTTP,
@@ -38,12 +58,7 @@ object GeoLookup {
         )
         if (user.isNotEmpty()) {
             if (isSocks) {
-                Authenticator.setDefault(object : Authenticator() {
-                    override fun getPasswordAuthentication(): PasswordAuthentication? =
-                        if (requestorType == Authenticator.RequestorType.PROXY ||
-                            (requestingHost.equals(host, ignoreCase = true) && requestingPort == port)
-                        ) PasswordAuthentication(user, pass.toCharArray()) else null
-                })
+                registerSocksLogin(host, port, user, pass)
             } else {
                 b.proxyAuthenticator { _, response ->
                     if (response.request.header("Proxy-Authorization") != null) null
@@ -75,10 +90,7 @@ object GeoLookup {
         }
     }
 
-    /** Blocking: call from a background thread. Returns ip, country and code, or null. */
-    fun lookup(): Map<String, String>? {
-        if (!ProxyState.active) return null
-        val c = client()
+    private fun run(c: OkHttpClient): Map<String, String>? {
         for (u in listOf("https://ipwho.is/", "https://ipapi.co/json/")) {
             try {
                 val r = query(c, u)
@@ -87,5 +99,23 @@ object GeoLookup {
             }
         }
         return null
+    }
+
+    /** Blocking: call from a background thread. The proxy now applied to the app. */
+    fun lookup(): Map<String, String>? {
+        if (!ProxyState.active) return null
+        return run(client(ProxyState.scheme, ProxyState.host, ProxyState.port, ProxyState.username, ProxyState.password))
+    }
+
+    /** Blocking: one given proxy, whether or not it is applied. */
+    fun lookupVia(scheme: String, host: String, port: Int, user: String, pass: String): Map<String, String>? {
+        if (scheme != "http" && scheme != "https" && scheme != "socks5") return null
+        return run(client(scheme, host, port, user, pass))
+    }
+
+    /** Blocking: the phone's own connection. Refused while a proxy is applied. */
+    fun lookupDirect(): Map<String, String>? {
+        if (ProxyState.active) return null
+        return run(client(null, "", 0, "", ""))
     }
 }

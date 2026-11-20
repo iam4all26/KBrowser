@@ -290,22 +290,34 @@ class _BrowserScreenState extends State<BrowserScreen> {
     });
   }
 
-  /// Looks up the country of this profile's proxy (shown in the menu).
+  /// Looks up where this profile exits to the internet (shown in the menu): through the
+  /// proxy when the profile has one, otherwise the phone's own connection.
   Future<void> _refreshGeo({bool force = false}) async {
     final id = _proxyId;
-    if (id == null) {
-      _geo.value = null;
-      return;
-    }
     _geoBusy.value = true;
     try {
-      final g = await _proxy.geoFor(id, refresh: force);
+      final g = id == null
+          ? await _proxy.directGeoFor(refresh: force)
+          : await _proxy.geoFor(id, refresh: force);
       if (mounted && _proxyId == id) _geo.value = g;
     } catch (_) {
       if (mounted && _proxyId == id) _geo.value = null;
     } finally {
       if (mounted) _geoBusy.value = false;
     }
+  }
+
+  /// Quick disconnect from the menu: this profile's proxy becomes None.
+  Future<void> _disconnectProxy() async {
+    try {
+      await KMultiProfiles.clearProxy(); // first: if this fails nothing has changed
+      await _proxy.setProxyFor(_p.id, null);
+    } catch (e) {
+      _toast('Could not disconnect the proxy: $e');
+      return;
+    }
+    await _syncAfterProxyChange();
+    _toast('Proxy disconnected. This profile now uses your real IP address.');
   }
 
   Future<void> _onLoginSubmitted(String url, String user, String pass) async {
@@ -465,6 +477,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (mounted) Navigator.of(context).pop();
       return;
     }
+    await _syncAfterProxyChange();
+  }
+
+  /// Re-reads this profile's proxy, scripts and ad blocker and applies what changed to the
+  /// open tabs (the page reloads when something changed).
+  Future<void> _syncAfterProxyChange() async {
     final proxyId = (await _proxy.proxyFor(_p.id))?.id;
     final scripts = await _scriptsForProfile();
     final adBlock = await _ext.adBlockEnabledFor(_p.id);
@@ -494,6 +512,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
     c.onDownloadMessage = _toast;
     c.onLoginSubmitted = (url, user, pass) => _onLoginSubmitted(url, user, pass);
     c.onLoginForm = (url) => _onLoginForm(c, url);
+    c.onDownloadStart = (info) => _downloads.started(_p.id, info);
+    c.onDownloadProgress = (info) => _downloads.progress(_p.id, info);
+    c.onDownloadFailed = (info) => _downloads.failed(info);
     c.onDownloadDone = (info) {
       _downloads.add(_p.id, info);
     };
@@ -774,27 +795,29 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     _showProfileSwitcher();
                   },
                 ),
-                if (_proxyId != null) ...[
-                  const Divider(height: 1),
-                  AnimatedBuilder(
-                    animation: Listenable.merge([_geo, _geoBusy]),
-                    builder: (_, __) {
-                      final g = _geo.value;
-                      return ListTile(
-                        leading: g != null && g.flag.isNotEmpty
-                            ? Text(g.flag, style: const TextStyle(fontSize: 22))
-                            : const Icon(Icons.vpn_lock_outlined),
-                        title: Text(g != null
-                            ? g.country
-                            : (_geoBusy.value ? 'Checking proxy...' : 'Proxy location unknown')),
-                        subtitle: Text(g != null
-                            ? '${g.code.toUpperCase()}  ${g.ip}'
-                            : (_geoBusy.value ? 'Proxy is on' : 'Proxy is on. Tap to retry')),
-                        onTap: _geoBusy.value ? null : () => _refreshGeo(force: true),
-                      );
-                    },
-                  ),
-                ],
+                const Divider(height: 1),
+                AnimatedBuilder(
+                  animation: Listenable.merge([_geo, _geoBusy]),
+                  builder: (_, __) {
+                    final g = _geo.value;
+                    final on = _proxyId != null;
+                    final busy = _geoBusy.value;
+                    return ListTile(
+                      leading: g != null && g.flag.isNotEmpty
+                          ? Text(g.flag, style: const TextStyle(fontSize: 22))
+                          : Icon(on ? Icons.vpn_lock_outlined : Icons.public),
+                      title: Text(g != null ? g.country : (busy ? 'Checking location...' : 'Location unknown')),
+                      subtitle: Text(g != null
+                          ? '${on ? 'Proxy' : 'No proxy'}  |  ${g.code.toUpperCase()}  ${g.ip}'
+                          : (busy
+                              ? (on ? 'Proxy is on' : 'No proxy')
+                              : (on ? 'Proxy is on. Tap to retry' : 'No proxy. Tap to retry'))),
+                      onTap: busy ? null : () => _refreshGeo(force: true),
+                    );
+                  },
+                ),
+                if (_proxyId != null)
+                  item(Icons.link_off, 'Disconnect proxy', _disconnectProxy),
                 const Divider(height: 1),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
