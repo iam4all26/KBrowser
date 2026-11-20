@@ -138,6 +138,15 @@ class KWebViewController {
           progress.value = ((call.arguments as num) / 100).clamp(0.0, 1.0).toDouble();
         case 'onNewWindow':
           onNewWindow?.call(call.arguments as String);
+        case 'onLoginSubmitted':
+          final a = Map<String, dynamic>.from(call.arguments as Map);
+          onLoginSubmitted?.call(
+            (a['url'] as String?) ?? '',
+            (a['username'] as String?) ?? '',
+            (a['password'] as String?) ?? '',
+          );
+        case 'onLoginForm':
+          onLoginForm?.call((call.arguments as String?) ?? '');
         case 'onFind':
           final f = Map<String, dynamic>.from(call.arguments as Map);
           final total = (f['total'] as num?)?.toInt() ?? 0;
@@ -164,6 +173,16 @@ class KWebViewController {
 
   /// Called when a page asks to open a new window (target=_blank, window.open).
   void Function(String url)? onNewWindow;
+
+  /// A login form was submitted: page address, username, password.
+  void Function(String url, String username, String password)? onLoginSubmitted;
+
+  /// A visible login form (password field) appeared on this page address.
+  void Function(String url)? onLoginForm;
+
+  /// Fills the visible login form of the page with a saved login.
+  Future<void> fillLogin(String username, String password) =>
+      _channel.invokeMethod<void>('fillLogin', {'username': username, 'password': password});
 
   /// Called with a short message when a download starts or cannot start.
   void Function(String message)? onDownloadMessage;

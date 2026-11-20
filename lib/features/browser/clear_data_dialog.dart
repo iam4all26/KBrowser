@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 
 /// "Delete browsing data" for ONE profile. Returns the chosen parts:
-/// 'history', 'cookies' (cookies and site storage) and 'cache', or null if cancelled.
+/// 'history', 'cookies' (cookies and site storage), 'cache' and 'passwords', or null if cancelled.
 Future<Set<String>?> showClearDataDialog(BuildContext context, {required String profileName}) {
   var history = true;
   var cookies = false;
   var cache = true;
+  var passwords = false;
   return showDialog<Set<String>>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -39,17 +40,24 @@ Future<Set<String>?> showClearDataDialog(BuildContext context, {required String 
                 onChanged: (v) => setState(() => cache = v ?? false),
                 title: const Text('Cached images and files'),
               ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: passwords,
+                onChanged: (v) => setState(() => passwords = v ?? false),
+                title: const Text('Saved passwords'),
+              ),
             ],
           ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
-            onPressed: (history || cookies || cache)
+            onPressed: (history || cookies || cache || passwords)
                 ? () => Navigator.pop(ctx, <String>{
                       if (history) 'history',
                       if (cookies) 'cookies',
                       if (cache) 'cache',
+                      if (passwords) 'passwords',
                     })
                 : null,
             child: const Text('Delete'),

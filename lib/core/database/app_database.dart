@@ -2,7 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
   static const _file = 'k_multi_browser.db';
-  static const _version = 10;
+  static const _version = 11;
 
   static Future<Database> open() async {
     final dir = await getDatabasesPath();
@@ -34,6 +34,7 @@ CREATE TABLE profiles (
         await _createV8(db);
         await _createV9(db);
         await _createV10(db);
+        await _createV11(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) await _createV2(db);
@@ -53,8 +54,25 @@ CREATE TABLE profiles (
         if (oldVersion < 8) await _createV8(db);
         if (oldVersion < 9) await _createV9(db);
         if (oldVersion < 10) await _createV10(db);
+        if (oldVersion < 11) await _createV11(db);
       },
     );
+  }
+
+  /// Version 11: saved logins, per profile (password encrypted with the Keystore key).
+  static Future<void> _createV11(Database db) async {
+    await db.execute('''
+CREATE TABLE passwords (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    password_enc TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (profile_id, origin, username)
+)''');
+    await db.execute('CREATE INDEX idx_passwords_profile ON passwords (profile_id, origin)');
   }
 
   /// Version 10: download records, per profile.

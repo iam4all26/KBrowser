@@ -17,6 +17,7 @@ import android.provider.MediaStore
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -128,6 +129,9 @@ class KWebView(
             // Batch 23: Google sign-in. Google rejects embedded WebViews ("disallowed_useragent")
             // by looking for "; wv)" and "Version/4.0" in the User-Agent and for the
             // X-Requested-With header. Present a normal Chrome-style mobile UA instead.
+            // Batch 25: login capture bridge. Page code can only call save() and formSeen();
+            // the site address always comes from the WebView itself, never from the page.
+            wv.addJavascriptInterface(PwBridge(), "KMultiPw")
             mobileUa = chromeStyleUa(wv.settings.userAgentString)
             wv.settings.userAgentString = mobileUa
             try {
@@ -292,6 +296,49 @@ class KWebView(
      * window.open with size features (isDialog) is how almost all of them are opened.
      * Otherwise known identity hosts and OAuth-style URLs. Plain links open as tabs.
      */
+    private inner class PwBridge {
+        @JavascriptInterface
+        fun save(user: String?, pass: String?) {
+            val u = (user ?: "").take(256)
+            val p = (pass ?: "").take(512)
+            if (p.isEmpty()) return
+            mainHandler.post {
+                try {
+                    channel.invokeMethod(
+                        "onLoginSubmitted",
+                        mapOf("url" to (webView?.url ?: ""), "username" to u, "password" to p)
+                    )
+                } catch (e: Throwable) { }
+            }
+        }
+
+        @JavascriptInterface
+        fun formSeen() {
+            mainHandler.post {
+                try { channel.invokeMethod("onLoginForm", webView?.url ?: "") } catch (e: Throwable) { }
+            }
+        }
+    }
+
+    /** Puts a saved login into the visible login form of the page (user tapped Fill). */
+    private fun fillJs(user: String, pass: String): String {
+        val u = org.json.JSONObject.quote(user)
+        val p = org.json.JSONObject.quote(pass)
+        return "(function(u,p){try{" +
+            "function vis(e){var r=e.getBoundingClientRect();var s=getComputedStyle(e);" +
+            "return r.width>0&&r.height>0&&s.visibility!=='hidden'&&s.display!=='none';}" +
+            "function setv(e,v){var d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');" +
+            "d.set.call(e,v);e.dispatchEvent(new Event('input',{bubbles:true}));" +
+            "e.dispatchEvent(new Event('change',{bubbles:true}));}" +
+            "var pws=[].slice.call(document.querySelectorAll('input[type=password]')).filter(vis);" +
+            "if(!pws.length)return;var pw=pws[0];var scope=pw.form||document;var user=null;" +
+            "[].slice.call(scope.querySelectorAll('input')).forEach(function(e){" +
+            "var t=(e.type||'text').toLowerCase();" +
+            "if(e!==pw&&vis(e)&&!e.disabled&&!e.readOnly&&(t==='text'||t==='email'||t==='tel')" +
+            "&&(e.compareDocumentPosition(pw)&Node.DOCUMENT_POSITION_FOLLOWING))user=e;});" +
+            "if(user&&u)setv(user,u);setv(pw,p);}catch(x){}})($u,$p);"
+    }
+
     private fun isAuthPopup(url: String, isDialog: Boolean): Boolean {
         if (isDialog) return true
         val host = try { (Uri.parse(url).host ?: "").lowercase() } catch (e: Throwable) { return false }
@@ -730,6 +777,12 @@ class KWebView(
                 } catch (e: Throwable) {
                     result.success(null)
                 }
+            }
+            "fillLogin" -> {
+                val u = call.argument<String>("username") ?: ""
+                val p = call.argument<String>("password") ?: ""
+                wv.evaluateJavascript(fillJs(u, p), null)
+                result.success(null)
             }
             "clearCache" -> {
                 try { wv.clearCache(true) } catch (e: Throwable) { }

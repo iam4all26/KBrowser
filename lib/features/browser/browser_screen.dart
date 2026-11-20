@@ -18,6 +18,9 @@ import '../history/history_screen.dart';
 import '../profiles/profile_style.dart';
 import '../settings/settings_screen.dart';
 import '../../models/history_entry.dart';
+import '../../services/password_service.dart';
+import '../extensions/passwords_script.dart';
+import '../passwords/passwords_screen.dart';
 import 'bookmark_dialog.dart';
 import 'clear_data_dialog.dart';
 import 'recent_tabs_sheet.dart';
@@ -80,6 +83,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
   late final ProxyService _proxy = ProxyService(widget.service.db);
   late final DownloadService _downloads = DownloadService(widget.service.db);
   bool _switching = false; // WebViews are being released before another profile opens
+  late final PasswordService _pw = PasswordService(widget.service.db, widget.profile.id);
+  bool _pwOn = true;
+  bool _onlyPwScript = true; // no extension or proxy script: unsupported WebViews stay silent
   int? _proxyId;
   final ValueNotifier<ProxyGeo?> _geo = ValueNotifier<ProxyGeo?>(null);
   final ValueNotifier<bool> _geoBusy = ValueNotifier<bool>(false);
@@ -93,6 +99,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       ProxyService.owner = _p.id;
       _proxyId = (await _proxy.proxyFor(_p.id))?.id;
       _refreshGeo();
+      _pwOn = (await widget.service.getSetting(_p.id, 'pw_enabled')) != '0';
       _extScripts = await _scriptsForProfile();
       _adBlock = await _ext.adBlockEnabledFor(_p.id);
       _engine = SearchEngines.byId(await widget.service.getSetting(_p.id, 'search_engine'));
@@ -255,8 +262,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   /// Extension scripts plus the WebRTC guard when this profile uses a proxy.
-  Future<List<String>> _scriptsForProfile() async =>
-      [...await _ext.scriptsFor(_p.id), ...await _proxy.guardScripts(_p.id)];
+  Future<List<String>> _scriptsForProfile() async {
+    final base = [...await _ext.scriptsFor(_p.id), ...await _proxy.guardScripts(_p.id)];
+    _onlyPwScript = base.isEmpty;
+    return [...base, if (_pwOn) passwordCaptureScript];
+  }
 
   /// Destroys this browser's WebViews so the proxy can be changed for another profile.
   Future<void> _releaseWebViews() async {
@@ -275,6 +285,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   void _applyExtensions(KWebViewController c) {
     c.setExtensions(_extScripts).then<void>((_) {}, onError: (Object e) {
+      if (_onlyPwScript && e is PlatformException && e.code == 'unsupported') return;
       _toast('Extensions could not be applied: $e');
     });
   }
@@ -295,6 +306,111 @@ class _BrowserScreenState extends State<BrowserScreen> {
     } finally {
       if (mounted) _geoBusy.value = false;
     }
+  }
+
+  Future<void> _onLoginSubmitted(String url, String user, String pass) async {
+    if (!_pwOn || pass.isEmpty) return;
+    try {
+      final r = await _pw.check(url, user, pass);
+      if (!mounted || r == PwCheck.invalid || r == PwCheck.same) return;
+      final host = Uri.tryParse(url)?.host ?? '';
+      final who = user.isEmpty ? host : '$user on $host';
+      final changed = r == PwCheck.changed;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(changed ? 'Update saved password for $who?' : 'Save password for $who?'),
+            duration: const Duration(seconds: 15),
+            action: SnackBarAction(
+              label: changed ? 'Update' : 'Save',
+              onPressed: () async {
+                try {
+                  await _pw.store(url, user, pass);
+                  _toast('Password saved');
+                } catch (e) {
+                  _toast('Could not save: $e');
+                }
+              },
+            ),
+          ),
+        );
+    } catch (_) {}
+  }
+
+  Future<void> _onLoginForm(KWebViewController c, String url) async {
+    if (!_pwOn || c != _activeCtl) return;
+    final origin = PasswordService.originOf(url);
+    if (origin == null) return;
+    try {
+      final logins = await _pw.forOrigin(origin);
+      if (!mounted || logins.isEmpty) return;
+      final one = logins.length == 1;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(one
+                ? 'Fill saved login${logins.first.username.isEmpty ? '' : ': ${logins.first.username}'}?'
+                : 'Saved logins for ${logins.first.host}'),
+            duration: const Duration(seconds: 12),
+            action: SnackBarAction(
+              label: one ? 'Fill' : 'Choose',
+              onPressed: () => one ? _fillLogin(c, logins.first) : _chooseLogin(c, logins),
+            ),
+          ),
+        );
+    } catch (_) {}
+  }
+
+  Future<void> _fillLogin(KWebViewController c, SavedLogin l) async {
+    try {
+      final p = await _pw.reveal(l.id);
+      await c.fillLogin(l.username, p);
+    } catch (e) {
+      _toast('Could not fill: $e');
+    }
+  }
+
+  Future<void> _chooseLogin(KWebViewController c, List<SavedLogin> logins) async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final l in logins)
+              ListTile(
+                leading: const Icon(Icons.key_outlined),
+                title: Text(l.username.isEmpty ? '(no username)' : l.username),
+                subtitle: Text(l.host),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _fillLogin(c, l);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPasswords() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PasswordsScreen(profile: _p, passwords: _pw, service: widget.service),
+      ),
+    );
+    final on = (await widget.service.getSetting(_p.id, 'pw_enabled')) != '0';
+    if (!mounted || on == _pwOn) return;
+    _pwOn = on;
+    _extScripts = await _scriptsForProfile();
+    for (final c in _ctl.values) {
+      _applyExtensions(c);
+    }
+    if (!_onStart) _activeCtl?.reload();
   }
 
   Future<void> _openRecentTabs() async {
@@ -320,6 +436,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (what == null || what.isEmpty || !mounted) return;
     try {
       if (what.contains('history')) await _history.clear();
+      if (what.contains('passwords')) await _pw.deleteAll();
       if (what.contains('cookies')) {
         await KMultiProfiles.clearSiteData(_p.engineProfileName, cookies: true, storage: true);
       }
@@ -375,6 +492,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
       _tabs.addTab(url: u, desktop: _p.desktopMode);
     };
     c.onDownloadMessage = _toast;
+    c.onLoginSubmitted = (url, user, pass) => _onLoginSubmitted(url, user, pass);
+    c.onLoginForm = (url) => _onLoginForm(c, url);
     c.onDownloadDone = (info) {
       _downloads.add(_p.id, info);
     };
@@ -773,6 +892,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     ),
                   ),
                 ),
+                item(Icons.key_outlined, 'Passwords', _openPasswords),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
                 item(
                   Icons.extension_outlined,
