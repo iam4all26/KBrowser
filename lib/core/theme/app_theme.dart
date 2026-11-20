@@ -34,14 +34,27 @@ class AppTheme {
     final scheme = ColorScheme.fromSeed(
       seedColor: accent,
       brightness: Brightness.light,
-    ).copyWith(primary: accent, secondary: AppColors.gold, surface: const Color(0xFFF7F5FC));
+    ).copyWith(
+      primary: accent,
+      secondary: AppColors.gold,
+      // Pure white everywhere in light mode: pages, bars, dialogs, sheets and menus.
+      surface: AppColors.white,
+      surfaceTint: Colors.transparent,
+      surfaceContainerLowest: AppColors.white,
+      surfaceContainerLow: AppColors.white,
+      surfaceContainer: AppColors.white,
+      surfaceContainerHigh: AppColors.white,
+      surfaceContainerHighest: const Color(0xFFF2F2F5),
+    );
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: const Color(0xFFF7F5FC),
+      scaffoldBackgroundColor: AppColors.white,
+      canvasColor: AppColors.white,
       appBarTheme: AppBarTheme(
-        backgroundColor: const Color(0xFFF7F5FC),
+        backgroundColor: AppColors.white,
         foregroundColor: scheme.onSurface,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
       ),
     );
@@ -54,7 +67,7 @@ extension AppThemeContext on BuildContext {
   bool get _isDark => Theme.of(this).brightness == Brightness.dark;
 
   /// Cards, text fields and panels.
-  Color get panel => _isDark ? AppColors.surface : const Color(0xFFECE8F7);
+  Color get panel => _isDark ? AppColors.surface : const Color(0xFFF2F2F5);
 
   /// Secondary text and icons.
   Color get muted => Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.6);

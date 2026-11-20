@@ -668,6 +668,16 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _ctl[t.id]?.setDesktopMode(next);
   }
 
+  /// Opens this profile's Downloads list (also used by the button in the address bar).
+  void _openDownloads() {
+    _focus.unfocus();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DownloadsScreen(profile: _p, downloads: _downloads),
+      ),
+    );
+  }
+
   Future<void> _openSwitcher() async {
     _focus.unfocus();
     await _captureThumb();
@@ -935,11 +945,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 item(
                   Icons.download_outlined,
                   'Downloads',
-                  () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DownloadsScreen(profile: _p, downloads: _downloads),
-                    ),
-                  ),
+                  _openDownloads,
                 ),
                 item(Icons.key_outlined, 'Passwords', _openPasswords),
                 item(Icons.search, 'Search engine: ${_engine.name}', _pickEngine),
@@ -1099,11 +1105,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
                           },
                         )
                       : IconButton(
-                          tooltip: loading ? 'Stop' : 'Reload',
+                          tooltip: 'Downloads',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-                          icon: Icon(loading ? Icons.close : Icons.refresh, size: 20),
-                          onPressed: () => loading ? c?.stop() : c?.reload(),
+                          icon: const Icon(Icons.download_outlined, size: 20),
+                          onPressed: _openDownloads,
                         ),
                 ),
               )),

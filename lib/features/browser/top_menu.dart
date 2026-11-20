@@ -9,7 +9,7 @@ Future<void> showTopMenu(BuildContext context, {required Widget Function(BuildCo
   final media = MediaQuery.of(context);
   final width = media.size.width < 272 ? media.size.width - 16 : 256.0;
   final top = media.padding.top + 56;
-  final maxHeight = (media.size.height * 0.72).clamp(0.0, media.size.height - top - media.padding.bottom - 12);
+  final maxHeight = (media.size.height * 0.9).clamp(0.0, media.size.height - top - media.padding.bottom - 12);
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -25,8 +25,8 @@ Future<void> showTopMenu(BuildContext context, {required Widget Function(BuildCo
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: maxHeight),
             child: Material(
-              elevation: 10,
-              color: ctx.panel,
+              elevation: 14,
+              color: Theme.of(ctx).brightness == Brightness.light ? Colors.white : ctx.panel,
               borderRadius: BorderRadius.circular(16),
               clipBehavior: Clip.antiAlias,
               child: MediaQuery.removePadding(
