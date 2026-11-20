@@ -26,6 +26,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.webkit.ProfileStore
 import androidx.webkit.ScriptHandler
@@ -73,6 +75,9 @@ class KWebView(
     private val appContext: Context = context.applicationContext
     private val channel = MethodChannel(messenger, "kmulti/webview_$viewId")
     private var webView: WebView? = null
+    private var container: FrameLayout? = null
+    private var popup: View? = null
+    private var popupWebView: WebView? = null
     private var mobileUa: String = ""
     private var desktop: Boolean = false
     private val scriptHandlers = mutableListOf<ScriptHandler>()
@@ -226,9 +231,16 @@ class KWebView(
                         return false
                     }
                     var fired = false
-                    fun fire(url: String?) {
+                    fun fire(url: String?, fromOverride: Boolean) {
                         if (fired || url.isNullOrEmpty() || url == "about:blank") return
                         fired = true
+                        // Batch 23: Google sign-in pop-ups must stay linked to the page that
+                        // opened them (window.opener), so they are kept as a real pop-up
+                        // overlay instead of being turned into a separate tab.
+                        if (isGoogleAuthUrl(url)) {
+                            mainHandler.post { promotePopup(temp, view, url, fromOverride) }
+                            return
+                        }
                         channel.invokeMethod("onNewWindow", url)
                         Handler(Looper.getMainLooper()).post {
                             temp.stopLoading()
@@ -237,12 +249,12 @@ class KWebView(
                     }
                     temp.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                            fire(request.url.toString())
+                            fire(request.url.toString(), true)
                             return true
                         }
 
                         override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
-                            fire(url)
+                            fire(url, false)
                         }
                     }
                     val transport = resultMsg.obj as WebView.WebViewTransport
@@ -265,10 +277,96 @@ class KWebView(
                 startDownload(url, userAgent, contentDisposition, mimeType)
             }
             webView = wv
-            wv
+            val frame = FrameLayout(context)
+            frame.addView(wv, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            container = frame
+            frame
         } catch (e: Throwable) {
             errorView(context, "Could not open profile $profileName: ${e.message}")
         }
+    }
+
+    private fun isGoogleAuthUrl(url: String): Boolean =
+        try { Uri.parse(url).host == "accounts.google.com" } catch (e: Throwable) { false }
+
+    private fun closePopup() {
+        val v = popup
+        val w = popupWebView
+        popup = null
+        popupWebView = null
+        if (v != null) (v.parent as? ViewGroup)?.removeView(v)
+        if (w != null) {
+            try { w.stopLoading() } catch (e: Throwable) { }
+            try { w.destroy() } catch (e: Throwable) { }
+        }
+    }
+
+    /** Shows the pop-up WebView (same profile, still linked to its opener) over the page. */
+    private fun promotePopup(pop: WebView, opener: WebView, url: String, reload: Boolean) {
+        val frame = container
+        if (frame == null) {
+            pop.destroy()
+            return
+        }
+        closePopup()
+        pop.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            javaScriptCanOpenWindowsAutomatically = true
+            userAgentString = opener.settings.userAgentString
+        }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                WebSettingsCompat.setRequestedWithHeaderOriginAllowList(pop.settings, emptySet())
+            }
+        } catch (e: Throwable) { }
+        try { profileCookies()?.setAcceptThirdPartyCookies(pop, true) } catch (e: Throwable) { }
+        pop.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean =
+                when (request.url.scheme) {
+                    null, "http", "https", "about", "data", "blob", "javascript" -> false
+                    else -> true
+                }
+        }
+        pop.webChromeClient = object : WebChromeClient() {
+            override fun onCloseWindow(window: WebView) {
+                mainHandler.post { closePopup() }
+            }
+        }
+        val density = frame.context.resources.displayMetrics.density
+        val bar = LinearLayout(frame.context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#17151F"))
+            setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+        }
+        bar.addView(TextView(frame.context).apply {
+            text = "Sign in"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(TextView(frame.context).apply {
+            text = "Close"
+            setTextColor(Color.parseColor("#F6C101"))
+            textSize = 15f
+            setPadding((12 * density).toInt(), (12 * density).toInt(), 0, (12 * density).toInt())
+            setOnClickListener { closePopup() }
+        })
+        val column = LinearLayout(frame.context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            isClickable = true
+        }
+        column.addView(bar, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()))
+        column.addView(pop, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        frame.addView(column, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        popup = column
+        popupWebView = pop
+        if (reload) pop.loadUrl(url)
     }
 
     private fun openExternal(uri: Uri): Boolean {
@@ -569,7 +667,10 @@ class KWebView(
             }
             "reload" -> { wv.reload(); result.success(null) }
             "stop" -> { wv.stopLoading(); result.success(null) }
-            "goBack" -> { if (wv.canGoBack()) wv.goBack(); result.success(null) }
+            "goBack" -> {
+                if (popup != null) closePopup() else if (wv.canGoBack()) wv.goBack()
+                result.success(null)
+            }
             "goForward" -> { if (wv.canGoForward()) wv.goForward(); result.success(null) }
             "setDesktopMode" -> {
                 val enabled = call.argument<Boolean>("enabled") ?: false
@@ -646,6 +747,7 @@ class KWebView(
 
     override fun dispose() {
         channel.setMethodCallHandler(null)
+        closePopup()
         try {
             profileCookies()?.flush()
         } catch (e: Throwable) {
